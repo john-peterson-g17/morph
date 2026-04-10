@@ -1,40 +1,52 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/john-peterson-g17/morph/internal/engine"
 )
 
 var (
-	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("10"))
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	dimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	activeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))
+	headerStyle  = lipgloss.NewStyle().Bold(true)
+	dimStyle     = lipgloss.NewStyle().Faint(true)
+	boldStyle    = lipgloss.NewStyle().Bold(true)
+	activeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	barFillStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	failStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
 // Model is the bubbletea model for morph job output.
 type Model struct {
-	state   JobState
-	quiting bool
+	jobName         string
+	workers         []workerDisplay
+	totalLoaded     int64
+	nextWidth       time.Duration
+	chunksOK        int
+	chunksFailed    int
+	estimatedChunks int
+	startTime       time.Time
+	recentLog       []string
+	done            bool
+	loadErr         error
+	cancel          context.CancelFunc
 }
 
-// New creates a new TUI model for a job.
-func New(jobName string, steps []string) Model {
-	ss := make([]Step, len(steps))
-	for i, name := range steps {
-		ss[i] = Step{Name: name, Status: StepPending}
+// New creates a new TUI model for a morph job.
+func New(jobName string, concurrency int, cancel context.CancelFunc) Model {
+	workers := make([]workerDisplay, concurrency)
+	for i := range workers {
+		workers[i] = workerDisplay{id: i + 1, idle: true}
 	}
 	return Model{
-		state: JobState{
-			JobName:   jobName,
-			Steps:     ss,
-			StartedAt: time.Now(),
-		},
+		jobName:   jobName,
+		workers:   workers,
+		startTime: time.Now(),
+		cancel:    cancel,
 	}
 }
 
@@ -47,51 +59,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
-			m.quiting = true
+		case "ctrl+c", "q":
+			m.cancel()
 			return m, tea.Quit
 		}
+		return m, nil
 
 	case tickMsg:
 		return m, tickCmd()
 
-	case StepStartedMsg:
-		if msg.Index < len(m.state.Steps) {
-			m.state.Steps[msg.Index].Status = StepRunning
-			m.state.Steps[msg.Index].Total = msg.Total
-			m.state.CurrentStep = msg.Index
-		}
-		return m, nil
-
-	case ChunkDoneMsg:
-		if msg.StepIndex < len(m.state.Steps) {
-			m.state.Steps[msg.StepIndex].Chunks = msg.Chunks
-		}
-		return m, nil
-
-	case StepDoneMsg:
-		if msg.Index < len(m.state.Steps) {
-			m.state.Steps[msg.Index].Status = StepDone
-			m.state.Steps[msg.Index].Elapsed = msg.Elapsed
-		}
-		return m, nil
-
-	case StepFailedMsg:
-		if msg.Index < len(m.state.Steps) {
-			m.state.Steps[msg.Index].Status = StepFailed
-			if msg.Err != nil {
-				m.state.Steps[msg.Index].ErrorMsg = msg.Err.Error()
+	case engine.MsgChunkStart:
+		if idx := msg.WorkerID - 1; idx >= 0 && idx < len(m.workers) {
+			m.workers[idx] = workerDisplay{
+				id:      msg.WorkerID,
+				chunk:   &msg.Chunk,
+				started: time.Now(),
+				idle:    false,
 			}
 		}
-		return m, nil
 
-	case JobDoneMsg:
-		m.state.Done = true
-		return m, tea.Quit
+	case engine.MsgStepStart:
+		if idx := msg.WorkerID - 1; idx >= 0 && idx < len(m.workers) {
+			m.workers[idx].step = msg.StepName
+			m.workers[idx].liveRows = 0
+		}
 
-	case JobFailedMsg:
-		m.state.Done = true
-		m.state.Err = msg.Err
+	case engine.MsgStepDone:
+		// next MsgStepStart or MsgChunkDone will update the display
+
+	case engine.MsgChunkDone:
+		if idx := msg.WorkerID - 1; idx >= 0 && idx < len(m.workers) {
+			m.workers[idx].idle = true
+			m.workers[idx].chunk = nil
+			m.workers[idx].step = ""
+			m.workers[idx].liveRows = 0
+		}
+		m.totalLoaded = msg.TotalLoaded
+		m.nextWidth = msg.NextWidth
+		m.estimatedChunks = m.chunksOK + 1 + msg.EstimatedChunks
+		m.chunksOK++
+
+		chunkWidth := msg.Chunk.End.Sub(msg.Chunk.Start)
+		entry := fmt.Sprintf("#%d  %s → %s (%s)  %s rows  %s",
+			msg.WorkerID,
+			msg.Chunk.Start.Format("01-02 15:04"),
+			msg.Chunk.End.Format("15:04"),
+			engine.FormatDuration(chunkWidth),
+			engine.FormatRows(msg.Rows),
+			engine.FormatDuration(msg.Duration))
+		m.recentLog = append(m.recentLog, entry)
+		if len(m.recentLog) > 8 {
+			m.recentLog = m.recentLog[len(m.recentLog)-8:]
+		}
+
+	case engine.MsgChunkFailed:
+		m.chunksFailed++
+		status := "FAILED"
+		if msg.Retrying {
+			status = "RETRYING"
+		}
+		entry := fmt.Sprintf("%s → %s  %s: %v",
+			msg.Chunk.Start.Format("01-02 15:04"),
+			msg.Chunk.End.Format("15:04"),
+			status, msg.Err)
+		m.recentLog = append(m.recentLog, entry)
+		if len(m.recentLog) > 8 {
+			m.recentLog = m.recentLog[len(m.recentLog)-8:]
+		}
+
+	case engine.MsgJobDone:
+		m.done = true
+		m.loadErr = msg.Err
 		return m, tea.Quit
 	}
 
@@ -99,58 +137,99 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	if m.quiting {
-		return ""
+	var b strings.Builder
+
+	elapsed := time.Since(m.startTime)
+
+	var rateStr, etaStr string
+	if elapsed.Seconds() > 1 && m.totalLoaded > 0 {
+		rate := float64(m.totalLoaded) / elapsed.Seconds()
+		rateStr = fmt.Sprintf("  %s/s", engine.FormatRows(int64(rate)))
+		if m.estimatedChunks > m.chunksOK {
+			remaining := float64(m.estimatedChunks-m.chunksOK) / float64(m.chunksOK) * elapsed.Seconds()
+			etaStr = fmt.Sprintf("  ETA %s",
+				engine.FormatDuration(time.Duration(remaining*float64(time.Second))))
+		}
 	}
 
-	var b strings.Builder
-	elapsed := time.Since(m.state.StartedAt).Truncate(time.Second)
+	b.WriteString("\n")
+	b.WriteString(headerStyle.Render(fmt.Sprintf("⚡ %s", m.jobName)))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("  %s rows loaded%s%s\n",
+		boldStyle.Render(engine.FormatRows(m.totalLoaded)),
+		rateStr, etaStr))
 
-	b.WriteString(titleStyle.Render(fmt.Sprintf("⚡ %s", m.state.JobName)))
-	b.WriteString(dimStyle.Render(fmt.Sprintf("  %s", elapsed)))
+	chunksStr := fmt.Sprintf("  Elapsed: %s  Chunks: %d done", engine.FormatDuration(elapsed), m.chunksOK)
+	if m.estimatedChunks > 0 && m.estimatedChunks > m.chunksOK {
+		remaining := m.estimatedChunks - m.chunksOK
+		chunksStr += fmt.Sprintf(" / ~%d remaining (~%d total)", remaining, m.estimatedChunks)
+	}
+	b.WriteString(chunksStr)
+	if m.chunksFailed > 0 {
+		b.WriteString(failStyle.Render(fmt.Sprintf("  %d failed", m.chunksFailed)))
+	}
+	if m.nextWidth > 0 {
+		b.WriteString(fmt.Sprintf("  Width: %s", engine.FormatDuration(m.nextWidth)))
+	}
 	b.WriteString("\n\n")
 
-	for i, step := range m.state.Steps {
-		icon := dimStyle.Render("○")
-		info := dimStyle.Render(step.Name)
-
-		switch step.Status {
-		case StepRunning:
-			icon = activeStyle.Render("●")
-			progress := ""
-			if step.Total > 0 {
-				progress = fmt.Sprintf(" %d/%d chunks", step.Chunks, step.Total)
-			} else if step.Chunks > 0 {
-				progress = fmt.Sprintf(" %d chunks", step.Chunks)
-			}
-			info = activeStyle.Render(step.Name) + dimStyle.Render(progress)
-		case StepDone:
-			icon = successStyle.Render("✓")
-			info = successStyle.Render(step.Name) + dimStyle.Render(fmt.Sprintf(" %s", step.Elapsed.Truncate(time.Millisecond)))
-		case StepFailed:
-			icon = errorStyle.Render("✗")
-			info = errorStyle.Render(step.Name)
-			if step.ErrorMsg != "" {
-				info += errorStyle.Render(fmt.Sprintf(" — %s", step.ErrorMsg))
-			}
-		case StepSkipped:
-			icon = dimStyle.Render("–")
-			info = dimStyle.Render(step.Name + " (skipped)")
+	b.WriteString(headerStyle.Render("Workers"))
+	b.WriteString("\n")
+	for _, w := range m.workers {
+		if w.idle {
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  #%d  idle", w.id)))
+			b.WriteString("\n")
+			continue
 		}
 
-		prefix := "  "
-		if i == len(m.state.Steps)-1 {
-			prefix = "  "
+		chunkStr := ""
+		if w.chunk != nil {
+			width := w.chunk.End.Sub(w.chunk.Start)
+			chunkStr = fmt.Sprintf("%s → %s (%s)",
+				w.chunk.Start.Format("01-02 15:04"),
+				w.chunk.End.Format("15:04"),
+				engine.FormatDuration(width))
 		}
-		b.WriteString(fmt.Sprintf("%s %s %s\n", prefix, icon, info))
+
+		stepStr := w.step
+		if stepStr == "" {
+			stepStr = "starting"
+		}
+
+		rowsStr := ""
+		if w.liveRows > 0 {
+			rowsStr = fmt.Sprintf("~%s", engine.FormatRows(w.liveRows))
+		}
+
+		workerElapsed := ""
+		if !w.started.IsZero() {
+			workerElapsed = engine.FormatDuration(time.Since(w.started))
+		}
+
+		b.WriteString(fmt.Sprintf("  #%d  %s  %-22s %10s  %s\n",
+			w.id,
+			activeStyle.Render(chunkStr),
+			stepStr, rowsStr,
+			dimStyle.Render(workerElapsed)))
+	}
+	b.WriteString("\n")
+
+	if len(m.recentLog) > 0 {
+		b.WriteString(headerStyle.Render("Completed"))
+		b.WriteString("\n")
+		for _, entry := range m.recentLog {
+			b.WriteString(fmt.Sprintf("  %s\n", entry))
+		}
 	}
 
-	if m.state.Done {
+	if m.done {
 		b.WriteString("\n")
-		if m.state.Err != nil {
-			b.WriteString(errorStyle.Render(fmt.Sprintf("✗ Failed: %s", m.state.Err)))
+		if m.loadErr != nil {
+			b.WriteString(failStyle.Render(fmt.Sprintf("✗ Failed: %s", m.loadErr)))
 		} else {
-			b.WriteString(successStyle.Render(fmt.Sprintf("✓ Done in %s", elapsed)))
+			b.WriteString(boldStyle.Render(fmt.Sprintf("✓ Done in %s  —  %s rows loaded",
+				engine.FormatDuration(elapsed),
+				engine.FormatRows(m.totalLoaded))))
 		}
 		b.WriteString("\n")
 	}

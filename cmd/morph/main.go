@@ -6,10 +6,14 @@ import (
 	"os"
 
 	"github.com/john-peterson-g17/morph/internal/cli"
+	"github.com/joho/godotenv"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
 func main() {
+	// Load .env if present; environment variables take precedence.
+	_ = godotenv.Load()
+
 	app := &urfavecli.Command{
 		Name:  "morph",
 		Usage: "Safe, resumable data backfills for schema evolution",

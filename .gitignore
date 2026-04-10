@@ -35,3 +35,9 @@ go.work.sum
 # .vscode/
 
 .tmp
+
+# Morph job definitions
+/jobs
+
+# Morph state files
+/.morph

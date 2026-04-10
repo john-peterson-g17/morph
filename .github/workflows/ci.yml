@@ -1,0 +1,66 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+      - name: Download Go modules
+        run: go mod download
+      - name: Build Binaries
+        run: |
+          mkdir -p dist
+
+          echo "Building morph..."
+          go build -o dist/morph ./cmd/morph
+
+  golangci:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.x
+      - name: Debug Go version
+        run: |
+          go version
+          go env GOTOOLCHAIN GOVERSION
+      - name: Install dependencies
+        run: go mod download
+      - name: Install golangci-lint
+        env:
+          GOBIN: ${{ github.workspace }}/bin
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.4.0
+          ${{ github.workspace }}/bin/golangci-lint --version
+
+      - name: Run golangci-lint
+        run: ${{ github.workspace }}/bin/golangci-lint run
+
+  unit-test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+      - name: Download dependencies
+        run: go mod download
+      - name: Test
+        run: go test -race -count=1 -tags=unit -coverprofile=coverage.txt -covermode=atomic ./...

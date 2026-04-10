@@ -2,33 +2,38 @@ package cli
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"time"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/john-peterson-g17/morph/internal/tui"
+	_ "github.com/lib/pq"
 	"github.com/urfave/cli/v3"
+
+	"github.com/john-peterson-g17/morph/internal/cli/flags"
+	"github.com/john-peterson-g17/morph/internal/engine"
+	"github.com/john-peterson-g17/morph/internal/job"
+	"github.com/john-peterson-g17/morph/internal/tui"
 )
 
 // RunCommand returns the run CLI command.
 func RunCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "run",
-		Usage: "Execute a backfill job from a config file",
+		Name:      "run",
+		Usage:     "Execute a morph job",
+		UsageText: "morph run <job name>",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:     "config",
-				Aliases:  []string{"c"},
-				Usage:    "Path to the backfill config file",
-				Required: true,
-			},
+			flags.JobDirFlag(),
+			flags.ProgressDirFlag(),
 			&cli.IntFlag{
 				Name:  "concurrency",
 				Usage: "Number of parallel chunk workers",
 				Value: 1,
 			},
 			&cli.BoolFlag{
-				Name:  "dry-run",
-				Usage: "Print the execution plan and exit without running",
+				Name:  "fresh",
+				Usage: "Discard previous progress and start from scratch",
 			},
 		},
 		Action: runBackfill,
@@ -36,30 +41,172 @@ func RunCommand() *cli.Command {
 }
 
 func runBackfill(ctx context.Context, cmd *cli.Command) error {
-	config := cmd.String("config")
+	jobFile, err := flags.ResolveJobFile(cmd)
+	if err != nil {
+		return err
+	}
 
-	// TODO: parse config, extract job name and step names
-	// For now, use placeholders to demonstrate the TUI.
-	jobName := fmt.Sprintf("backfill (%s)", config)
-	steps := []string{"step 1", "step 2", "step 3"}
+	cfg, err := job.Load(jobFile)
+	if err != nil {
+		return fmt.Errorf("loading job: %w", err)
+	}
 
-	p, err := tui.Run(jobName, steps)
+	progressFile, err := flags.ResolveProgressFile(cmd, cfg.Version)
+	if err != nil {
+		return err
+	}
+
+	concurrency := int(cmd.Int("concurrency"))
+	if cfg.Execution.Concurrency > 0 && concurrency <= 1 {
+		concurrency = cfg.Execution.Concurrency
+	}
+
+	// Parse chunking durations from config.
+	initialWidth, err := job.ParseDuration(cfg.Source.Chunking.InitialWidth)
+	if err != nil {
+		return fmt.Errorf("parsing initial_width: %w", err)
+	}
+	if initialWidth == 0 {
+		initialWidth = 1 * 60 * 60 * 1e9 // 1h default
+	}
+	targetRuntime, err := job.ParseDuration(cfg.Source.Chunking.TargetRuntime)
+	if err != nil {
+		return fmt.Errorf("parsing target_runtime: %w", err)
+	}
+	if targetRuntime == 0 {
+		targetRuntime = 30 * 1e9 // 30s default
+	}
+	minWidth, err := job.ParseDuration(cfg.Source.Chunking.MinWidth)
+	if err != nil {
+		return fmt.Errorf("parsing min_width: %w", err)
+	}
+	if minWidth == 0 {
+		minWidth = 60 * 1e9 // 1m default
+	}
+	maxWidth, err := job.ParseDuration(cfg.Source.Chunking.MaxWidth)
+	if err != nil {
+		return fmt.Errorf("parsing max_width: %w", err)
+	}
+	if maxWidth == 0 {
+		maxWidth = 24 * 60 * 60 * 1e9 // 24h default
+	}
+
+	// Connect to database.
+	dsn := os.Getenv(cfg.Connection.DSNEnv)
+	if dsn == "" {
+		return fmt.Errorf("environment variable %q is not set", cfg.Connection.DSNEnv)
+	}
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer db.Close()
+
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("pinging database: %w", err)
+	}
+
+	// Set up progress store.
+	progress, err := engine.LoadProgressStore(progressFile)
+	if err != nil {
+		return fmt.Errorf("loading progress: %w", err)
+	}
+
+	if cmd.Bool("fresh") && progress.HasData() {
+		if err := progress.Reset(); err != nil {
+			return fmt.Errorf("resetting progress: %w", err)
+		}
+		progress, err = engine.LoadProgressStore(progressFile)
+		if err != nil {
+			return fmt.Errorf("reloading progress: %w", err)
+		}
+	}
+
+	// Set up chunk planner.
+	planner := engine.NewChunkPlanner(
+		cfg.Source.Window.Start,
+		cfg.Source.Window.End,
+		initialWidth,
+		targetRuntime,
+		minWidth,
+		maxWidth,
+	)
+
+	// Resume from last progress if available.
+	if progress.HasData() {
+		nextStart, lastWidth, completed := progress.GetResumePoint()
+		planner.ResumeFrom(nextStart, lastWidth)
+		fmt.Printf("Resuming from %s (%d chunks already completed)\n",
+			nextStart.Format("2006-01-02 15:04"), completed)
+	}
+
+	progress.Init(cfg.Job.Name, cfg.Version, cfg.Source.Window.Start, cfg.Source.Window.End)
+
+	// Print plan summary.
+	fmt.Printf("Job:         %s\n", cfg.Job.Name)
+	fmt.Printf("Window:      %s → %s\n",
+		cfg.Source.Window.Start.Format("2006-01-02 15:04"),
+		cfg.Source.Window.End.Format("2006-01-02 15:04"))
+	fmt.Printf("Steps:       %d (%s)\n", len(cfg.Steps), joinStepNames(cfg))
+	fmt.Printf("Concurrency: %d\n", concurrency)
+	fmt.Println()
+
+	// Set up cancellation via signals.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		cancel()
+	}()
+
+	// Start TUI.
+	program, err := tui.Run(cfg.Job.Name, concurrency, cancel)
 	if err != nil {
 		return fmt.Errorf("starting TUI: %w", err)
 	}
 
-	// TODO: replace with real backfill execution loop
-	for i, name := range steps {
-		_ = name
-		p.Send(tui.StepStartedMsg{Index: i, Total: 5})
-		for c := 1; c <= 5; c++ {
-			time.Sleep(200 * time.Millisecond)
-			p.Send(tui.ChunkDoneMsg{StepIndex: i, Chunks: c})
+	// Build and run worker pool.
+	maxRetries := cfg.Execution.MaxRetries
+	maxRows := int64(cfg.Execution.MaxRows)
+
+	pool := engine.NewWorkerPool(db, planner, progress, cfg.Steps, concurrency, maxRetries, maxRows, program)
+	poolErr := pool.Run(runCtx)
+
+	// Signal TUI to exit.
+	program.Send(engine.MsgJobDone{Err: poolErr})
+	program.Wait()
+
+	// Print final summary.
+	completedChunks, failedChunks, rowsByStep, avgRuntime := progress.Summary()
+	fmt.Println()
+	if poolErr != nil {
+		if engine.CheckCancelled(runCtx) != nil {
+			return nil
 		}
-		p.Send(tui.StepDoneMsg{Index: i, Elapsed: time.Second})
+		fmt.Printf("✗ Job failed: %v\n", poolErr)
+	} else {
+		fmt.Printf("✓ Job complete\n")
+	}
+	fmt.Printf("  Chunks: %d completed, %d failed\n", completedChunks, failedChunks)
+	fmt.Printf("  Avg chunk runtime: %s\n", engine.FormatDuration(avgRuntime))
+	for step, rows := range rowsByStep {
+		fmt.Printf("  %s: %s rows\n", step, engine.FormatRows(rows))
 	}
 
-	p.Send(tui.JobDoneMsg{})
-	p.Wait()
-	return nil
+	return poolErr
+}
+
+func joinStepNames(cfg *job.Config) string {
+	names := cfg.StepNames()
+	result := ""
+	for i, n := range names {
+		if i > 0 {
+			result += ", "
+		}
+		result += n
+	}
+	return result
 }

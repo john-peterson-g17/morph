@@ -1,11 +1,15 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"context"
 
-// Run starts the TUI and blocks until it exits. Send messages to the
-// returned program to drive updates from your backfill logic.
-func Run(jobName string, steps []string) (*tea.Program, error) {
-	m := New(jobName, steps)
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// Run starts the TUI and returns a program handle for sending messages.
+// The TUI runs in a background goroutine.
+func Run(jobName string, concurrency int, cancel context.CancelFunc) (*tea.Program, error) {
+	m := New(jobName, concurrency, cancel)
 	p := tea.NewProgram(m)
 
 	go func() {
