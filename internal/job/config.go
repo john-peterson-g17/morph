@@ -64,8 +64,10 @@ type Progress struct {
 }
 
 type Step struct {
-	Name  string    `yaml:"name"`
-	Morph StepMorph `yaml:"morph"`
+	Name   string    `yaml:"name"`
+	Before []StepSQL `yaml:"before"`
+	Morph  StepMorph `yaml:"morph"`
+	After  []StepSQL `yaml:"after"`
 }
 
 type StepMorph struct {
@@ -75,7 +77,8 @@ type StepMorph struct {
 }
 
 type StepSQL struct {
-	SQL string `yaml:"sql"`
+	SQL  string `yaml:"sql"`
+	Name string `yaml:"name"`
 }
 
 // ComposeSQL builds the final executable SQL by combining the into statement,

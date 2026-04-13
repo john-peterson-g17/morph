@@ -155,6 +155,26 @@
             "minLength": 1,
             "description": "Unique step name"
           },
+          "before": {
+            "type": "array",
+            "description": "SQL statements to run once before the morph chunked processing begins (e.g. drop indexes)",
+            "items": {
+              "type": "object",
+              "required": ["sql"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Optional label for this statement"
+                },
+                "sql": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "SQL statement to execute"
+                }
+              }
+            }
+          },
           "morph": {
             "type": "object",
             "required": ["partition_by", "from", "into"],
@@ -187,6 +207,26 @@
                     "minLength": 1,
                     "description": "INSERT statement with optional ON CONFLICT clause"
                   }
+                }
+              }
+            }
+          },
+          "after": {
+            "type": "array",
+            "description": "SQL statements to run once after the morph chunked processing completes (e.g. create indexes)",
+            "items": {
+              "type": "object",
+              "required": ["sql"],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Optional label for this statement"
+                },
+                "sql": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "SQL statement to execute"
                 }
               }
             }

@@ -197,3 +197,52 @@ func TestValidateCommandRejectsInvalid(t *testing.T) {
 		t.Error("expected validate to fail for invalid job, but it succeeded")
 	}
 }
+
+func TestBeforeAfterHooks(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	setupSchema(t, db)
+	defer cleanup(t, db)
+	defer db.Exec(`DROP INDEX IF EXISTS idx_morph_test_target_value`)
+
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	seedRows(t, db, 60, start, end)
+
+	// Pre-populate target with some rows so that the TRUNCATE in the before
+	// hook has something to clear.
+	for i := 0; i < 10; i++ {
+		ts := start.Add(time.Duration(i) * time.Hour)
+		if _, err := db.Exec(
+			`INSERT INTO morph_test_target (id, name, value, ts) VALUES ($1, $2, $3, $4)`,
+			9000+i, "stale", i, ts,
+		); err != nil {
+			t.Fatalf("inserting pre-existing target row: %v", err)
+		}
+	}
+
+	if got := tableCount(t, db, "morph_test_target"); got != 10 {
+		t.Fatalf("expected 10 pre-existing target rows, got %d", got)
+	}
+
+	progressDir := t.TempDir()
+	out, err := runMorph(t,
+		[]string{"run", testdataFile("before_after.v1.yml"), "--progress-dir", progressDir},
+		"MORPH_TEST_DSN="+testDSN(),
+	)
+	if err != nil {
+		t.Fatalf("morph run failed: %v\noutput: %s", err, out)
+	}
+
+	// The before hook TRUNCATEs the target, so the 10 stale rows should be
+	// gone and only the 60 source rows should be present.
+	if got := tableCount(t, db, "morph_test_target"); got != 60 {
+		t.Errorf("expected 60 rows in target (truncate + copy), got %d", got)
+	}
+
+	// The after hook creates an index on the value column.
+	if !indexExists(t, db, "idx_morph_test_target_value") {
+		t.Error("expected index idx_morph_test_target_value to exist after run")
+	}
+}

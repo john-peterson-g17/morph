@@ -32,102 +32,24 @@ progress:
   path: .morph/{{ .Name }}.progress.json
 
 steps:
-  - name: event_states
+  - name: my_step
+    # before:
+    #   - name: drop index
+    #     sql: DROP INDEX IF EXISTS my_index
+
     morph:
-      partition_by: occurred_at
+      partition_by: created_at
 
       from:
         sql: |
-          SELECT
-            e.id AS event_id,
-            e.status,
-            COALESCE(agg.attempt_count, 0) AS attempt_count,
-            agg.latest_attempt_id,
-            agg.latest_attempt_status,
-            agg.first_published_at,
-            agg.last_attempt_started_at,
-            agg.last_attempt_finished_at,
-            e.updated_at,
-            e.occurred_at AS occurred_at
-          FROM events.events e
-          LEFT JOIN LATERAL (
-            SELECT
-              COUNT(*)::integer AS attempt_count,
-              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS latest_attempt_id,
-              (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_attempt_status,
-              MIN(CASE WHEN kind = 'initial' THEN started_at END) AS first_published_at,
-              MAX(started_at) AS last_attempt_started_at,
-              MAX(finished_at) AS last_attempt_finished_at
-            FROM events.attempts
-            WHERE event_id = e.id
-          ) agg ON true
+          SELECT id, col1, col2, created_at
+          FROM source_table
 
       into:
         sql: |
-          INSERT INTO events.event_states (
-            event_id,
-            status,
-            attempt_count,
-            latest_attempt_id,
-            latest_attempt_status,
-            first_published_at,
-            last_attempt_started_at,
-            last_attempt_finished_at,
-            updated_at
-          )
-          ON CONFLICT (event_id) DO NOTHING
+          INSERT INTO target_table (id, col1, col2, created_at)
+          ON CONFLICT (id) DO NOTHING
 
-  - name: event_lookup
-    morph:
-      partition_by: occurred_at
-
-      from:
-        sql: |
-          SELECT
-            e.id AS event_id,
-            e.source,
-            e.target,
-            e.type,
-            e.status,
-            e.request_id,
-            e.trace_id,
-            e.account_id,
-            e.actor_id,
-            e.intent_urn,
-            COALESCE(e.occurred_at, e.created_at) AS occurred_at,
-            e.created_at,
-            e.updated_at,
-            COALESCE(agg.attempt_count, 0) AS attempt_count,
-            agg.latest_attempt_id,
-            agg.latest_attempt_status
-          FROM events.events e
-          LEFT JOIN LATERAL (
-            SELECT
-              COUNT(*)::integer AS attempt_count,
-              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS latest_attempt_id,
-              (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_attempt_status
-            FROM events.attempts
-            WHERE event_id = e.id
-          ) agg ON true
-
-      into:
-        sql: |
-          INSERT INTO events.event_lookup (
-            event_id,
-            source,
-            target,
-            type,
-            status,
-            request_id,
-            trace_id,
-            account_id,
-            actor_id,
-            intent_urn,
-            occurred_at,
-            created_at,
-            updated_at,
-            attempt_count,
-            latest_attempt_id,
-            latest_attempt_status
-          )
-          ON CONFLICT (event_id) DO NOTHING
+    # after:
+    #   - name: create index
+    #     sql: CREATE INDEX CONCURRENTLY IF NOT EXISTS my_index ON target_table (col1)

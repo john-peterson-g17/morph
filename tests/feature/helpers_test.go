@@ -141,6 +141,20 @@ func tableCount(t *testing.T, db *sql.DB, table string) int {
 	return count
 }
 
+// indexExists returns true if the given index exists in the database.
+func indexExists(t *testing.T, db *sql.DB, indexName string) bool {
+	t.Helper()
+	var exists bool
+	err := db.QueryRow(
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = $1)`,
+		indexName,
+	).Scan(&exists)
+	if err != nil {
+		t.Fatalf("checking index %s: %v", indexName, err)
+	}
+	return exists
+}
+
 // cleanup drops test tables.
 func cleanup(t *testing.T, db *sql.DB) {
 	t.Helper()

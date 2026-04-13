@@ -172,8 +172,38 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	maxRetries := cfg.Runtime.Defaults.MaxRetries
 	maxRows := int64(cfg.Runtime.Defaults.MaxRows)
 
+	// Execute before hooks for all steps.
+	for _, step := range cfg.Steps {
+		for _, hook := range step.Before {
+			label := hook.Name
+			if label == "" {
+				label = step.Name + " (before)"
+			}
+			fmt.Printf("Running: %s\n", label)
+			if _, err := db.ExecContext(runCtx, hook.SQL); err != nil {
+				return fmt.Errorf("before hook %q: %w", label, err)
+			}
+		}
+	}
+
 	pool := engine.NewWorkerPool(db, planner, progress, cfg.Steps, concurrency, maxRetries, maxRows, program)
 	poolErr := pool.Run(runCtx)
+
+	// Execute after hooks for all steps (only if job succeeded).
+	if poolErr == nil {
+		for _, step := range cfg.Steps {
+			for _, hook := range step.After {
+				label := hook.Name
+				if label == "" {
+					label = step.Name + " (after)"
+				}
+				fmt.Printf("Running: %s\n", label)
+				if _, err := db.ExecContext(runCtx, hook.SQL); err != nil {
+					return fmt.Errorf("after hook %q: %w", label, err)
+				}
+			}
+		}
+	}
 
 	// Signal TUI to exit.
 	program.Send(engine.MsgJobDone{Err: poolErr})

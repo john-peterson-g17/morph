@@ -12,12 +12,20 @@ type Validator struct{}
 
 type jobFile struct {
 	Steps []struct {
-		Name  string `yaml:"name"`
+		Name   string `yaml:"name"`
+		Before []struct {
+			Name string `yaml:"name"`
+			SQL  string `yaml:"sql"`
+		} `yaml:"before"`
 		Morph struct {
 			From struct {
 				SQL string `yaml:"sql"`
 			} `yaml:"from"`
 		} `yaml:"morph"`
+		After []struct {
+			Name string `yaml:"name"`
+			SQL  string `yaml:"sql"`
+		} `yaml:"after"`
 	} `yaml:"steps"`
 }
 
@@ -29,11 +37,34 @@ func (v *Validator) Validate(data []byte) error {
 
 	var errs []string
 	for _, step := range jf.Steps {
-		if step.Morph.From.SQL == "" {
-			continue
+		for i, hook := range step.Before {
+			if hook.SQL == "" {
+				continue
+			}
+			label := hook.Name
+			if label == "" {
+				label = fmt.Sprintf("before[%d]", i)
+			}
+			if _, err := pgquery.Parse(hook.SQL); err != nil {
+				errs = append(errs, fmt.Sprintf("step %q %s: %s", step.Name, label, err))
+			}
 		}
-		if _, err := pgquery.Parse(step.Morph.From.SQL); err != nil {
-			errs = append(errs, fmt.Sprintf("step %q from.sql: %s", step.Name, err))
+		if step.Morph.From.SQL != "" {
+			if _, err := pgquery.Parse(step.Morph.From.SQL); err != nil {
+				errs = append(errs, fmt.Sprintf("step %q from.sql: %s", step.Name, err))
+			}
+		}
+		for i, hook := range step.After {
+			if hook.SQL == "" {
+				continue
+			}
+			label := hook.Name
+			if label == "" {
+				label = fmt.Sprintf("after[%d]", i)
+			}
+			if _, err := pgquery.Parse(hook.SQL); err != nil {
+				errs = append(errs, fmt.Sprintf("step %q %s: %s", step.Name, label, err))
+			}
 		}
 	}
 
