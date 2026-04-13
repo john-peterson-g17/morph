@@ -48,7 +48,7 @@ func isFilePath(arg string) bool {
 func jobNameFromPath(path string) string {
 	base := filepath.Base(path)
 	base = strings.TrimSuffix(base, filepath.Ext(base)) // strip .yml/.yaml
-	base = strings.TrimSuffix(base, ".v1")               // strip version suffix
+	base = strings.TrimSuffix(base, ".v1")              // strip version suffix
 	return base
 }
 

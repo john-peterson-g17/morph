@@ -57,33 +57,33 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	concurrency := int(cmd.Int("concurrency"))
-	if cfg.Execution.Concurrency > 0 && concurrency <= 1 {
-		concurrency = cfg.Execution.Concurrency
+	if cfg.Runtime.Defaults.Concurrency > 0 && concurrency <= 1 {
+		concurrency = cfg.Runtime.Defaults.Concurrency
 	}
 
-	// Parse chunking durations from config.
-	initialWidth, err := job.ParseDuration(cfg.Source.Chunking.InitialWidth)
+	// Parse adaptive partitioning durations from config.
+	initialWidth, err := job.ParseDuration(cfg.Partitioning.Adaptive.InitialWidth)
 	if err != nil {
 		return fmt.Errorf("parsing initial_width: %w", err)
 	}
 	if initialWidth == 0 {
 		initialWidth = 1 * 60 * 60 * 1e9 // 1h default
 	}
-	targetRuntime, err := job.ParseDuration(cfg.Source.Chunking.TargetRuntime)
+	targetRuntime, err := job.ParseDuration(cfg.Partitioning.Adaptive.TargetRuntime)
 	if err != nil {
 		return fmt.Errorf("parsing target_runtime: %w", err)
 	}
 	if targetRuntime == 0 {
 		targetRuntime = 30 * 1e9 // 30s default
 	}
-	minWidth, err := job.ParseDuration(cfg.Source.Chunking.MinWidth)
+	minWidth, err := job.ParseDuration(cfg.Partitioning.Adaptive.MinWidth)
 	if err != nil {
 		return fmt.Errorf("parsing min_width: %w", err)
 	}
 	if minWidth == 0 {
 		minWidth = 60 * 1e9 // 1m default
 	}
-	maxWidth, err := job.ParseDuration(cfg.Source.Chunking.MaxWidth)
+	maxWidth, err := job.ParseDuration(cfg.Partitioning.Adaptive.MaxWidth)
 	if err != nil {
 		return fmt.Errorf("parsing max_width: %w", err)
 	}
@@ -124,8 +124,8 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 
 	// Set up chunk planner.
 	planner := engine.NewChunkPlanner(
-		cfg.Source.Window.Start,
-		cfg.Source.Window.End,
+		cfg.Partitioning.Window.Start,
+		cfg.Partitioning.Window.End,
 		initialWidth,
 		targetRuntime,
 		minWidth,
@@ -140,13 +140,13 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 			nextStart.Format("2006-01-02 15:04"), completed)
 	}
 
-	progress.Init(cfg.Job.Name, cfg.Version, cfg.Source.Window.Start, cfg.Source.Window.End)
+	progress.Init(cfg.Job.Name, cfg.Version, cfg.Partitioning.Window.Start, cfg.Partitioning.Window.End)
 
 	// Print plan summary.
 	fmt.Printf("Job:         %s\n", cfg.Job.Name)
 	fmt.Printf("Window:      %s → %s\n",
-		cfg.Source.Window.Start.Format("2006-01-02 15:04"),
-		cfg.Source.Window.End.Format("2006-01-02 15:04"))
+		cfg.Partitioning.Window.Start.Format("2006-01-02 15:04"),
+		cfg.Partitioning.Window.End.Format("2006-01-02 15:04"))
 	fmt.Printf("Steps:       %d (%s)\n", len(cfg.Steps), joinStepNames(cfg))
 	fmt.Printf("Concurrency: %d\n", concurrency)
 	fmt.Println()
@@ -169,8 +169,8 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Build and run worker pool.
-	maxRetries := cfg.Execution.MaxRetries
-	maxRows := int64(cfg.Execution.MaxRows)
+	maxRetries := cfg.Runtime.Defaults.MaxRetries
+	maxRows := int64(cfg.Runtime.Defaults.MaxRows)
 
 	pool := engine.NewWorkerPool(db, planner, progress, cfg.Steps, concurrency, maxRetries, maxRows, program)
 	poolErr := pool.Run(runCtx)

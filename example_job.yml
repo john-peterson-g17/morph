@@ -8,98 +8,98 @@ connection:
   driver: postgres
   dsn_env: DATABASE_URL
 
-source:
-  schema: events
+partitioning:
+  strategy: time_range
+
   window:
-    start: 2025-01-01T00:00:00Z
-    end: 2025-02-01T00:00:00Z
-  chunking:
-    strategy: time_range
-    column: occurred_at
+    start: "2025-01-01T00:00:00Z"
+    end: "2025-02-01T00:00:00Z"
+
+  adaptive:
     initial_width: 30m
     min_width: 5m
     max_width: 2h
     target_runtime: 30s
 
-execution:
-  concurrency: 4
-  max_retries: 3
-  max_rows: 0
-  dry_run: false
+runtime:
+  defaults:
+    concurrency: 4
+    max_retries: 3
+    max_rows: 0
+    statement_timeout: 1h
 
 progress:
   path: .morph/events-backfill.progress.json
-  fresh: false
-
-safety:
-  statement_timeout: 1h
-  truncate_targets: false
-  drop_indexes: false
-  rebuild_indexes: false
 
 steps:
   - name: event_states
-    target:
-      schema: events
-      table: event_states
-    sql: |
-      INSERT INTO events.event_states (
-        event_id, status, attempt_count, latest_attempt_id,
-        latest_attempt_status,
-        first_published_at, last_attempt_started_at,
-        last_attempt_finished_at, updated_at
-      )
-      SELECT
-        e.id, e.status,
-        COALESCE(agg.attempt_count, 0),
-        agg.latest_attempt_id,
-        agg.latest_attempt_status,
-        agg.first_published_at,
-        agg.last_attempt_started_at,
-        agg.last_attempt_finished_at,
-        e.updated_at
-      FROM events.events e
-      LEFT JOIN LATERAL (
-        SELECT
-          COUNT(*)::integer AS attempt_count,
-          (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS latest_attempt_id,
-          (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_attempt_status,
-          MIN(CASE WHEN kind = 'initial' THEN started_at END) AS first_published_at,
-          MAX(started_at) AS last_attempt_started_at,
-          MAX(finished_at) AS last_attempt_finished_at
-        FROM events.attempts
-        WHERE event_id = e.id
-      ) agg ON true
-      WHERE e.occurred_at >= $1 AND e.occurred_at < $2
-      ON CONFLICT (event_id) DO NOTHING
+    morph:
+      partition_by: occurred_at
+
+      from:
+        sql: |
+          SELECT
+            e.id, e.status,
+            COALESCE(agg.attempt_count, 0),
+            agg.latest_attempt_id,
+            agg.latest_attempt_status,
+            agg.first_published_at,
+            agg.last_attempt_started_at,
+            agg.last_attempt_finished_at,
+            e.updated_at
+          FROM events.events e
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(*)::integer AS attempt_count,
+              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS latest_attempt_id,
+              (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_attempt_status,
+              MIN(CASE WHEN kind = 'initial' THEN started_at END) AS first_published_at,
+              MAX(started_at) AS last_attempt_started_at,
+              MAX(finished_at) AS last_attempt_finished_at
+            FROM events.attempts
+            WHERE event_id = e.id
+          ) agg ON true
+
+      into:
+        sql: |
+          INSERT INTO events.event_states (
+            event_id, status, attempt_count, latest_attempt_id,
+            latest_attempt_status,
+            first_published_at, last_attempt_started_at,
+            last_attempt_finished_at, updated_at
+          )
+          ON CONFLICT (event_id) DO NOTHING
 
   - name: event_lookup
-    target:
-      schema: events
-      table: event_lookup
-    sql: |
-      INSERT INTO events.event_lookup (
-        event_id, source, target, type, status,
-        request_id, trace_id, account_id, actor_id, intent_urn,
-        occurred_at, created_at, updated_at,
-        attempt_count, latest_attempt_id, latest_attempt_status
-      )
-      SELECT
-        e.id, e.source, e.target, e.type, e.status,
-        e.request_id, e.trace_id, e.account_id, e.actor_id, e.intent_urn,
-        COALESCE(e.occurred_at, e.created_at),
-        e.created_at, e.updated_at,
-        COALESCE(agg.attempt_count, 0),
-        agg.latest_attempt_id,
-        agg.latest_attempt_status
-      FROM events.events e
-      LEFT JOIN LATERAL (
-        SELECT
-          COUNT(*)::integer AS attempt_count,
-          (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS latest_attempt_id,
-          (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_attempt_status
-        FROM events.attempts
-        WHERE event_id = e.id
-      ) agg ON true
-      WHERE e.occurred_at >= $1 AND e.occurred_at < $2
-      ON CONFLICT (event_id) DO NOTHING
+    morph:
+      partition_by: occurred_at
+
+      from:
+        sql: |
+          SELECT
+            e.id, e.source, e.target, e.type, e.status,
+            e.request_id, e.trace_id, e.account_id, e.actor_id, e.intent_urn,
+            COALESCE(e.occurred_at, e.created_at),
+            e.created_at, e.updated_at,
+            COALESCE(agg.attempt_count, 0),
+            agg.latest_attempt_id,
+            agg.latest_attempt_status
+          FROM events.events e
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(*)::integer AS attempt_count,
+              (ARRAY_AGG(id ORDER BY created_at DESC))[1] AS latest_attempt_id,
+              (ARRAY_AGG(status ORDER BY created_at DESC))[1] AS latest_attempt_status
+            FROM events.attempts
+            WHERE event_id = e.id
+          ) agg ON true
+
+      into:
+        sql: |
+          INSERT INTO events.event_lookup (
+            event_id, source, target, type, status,
+            request_id, trace_id, account_id, actor_id, intent_urn,
+            occurred_at, created_at, updated_at,
+            attempt_count, latest_attempt_id, latest_attempt_status
+          )
+          ON CONFLICT (event_id) DO NOTHING

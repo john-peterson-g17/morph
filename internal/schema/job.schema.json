@@ -3,7 +3,7 @@
   "title": "Morph Job",
   "description": "Schema for morph backfill job configuration files",
   "type": "object",
-  "required": ["version", "job", "connection", "source", "steps"],
+  "required": ["version", "job", "connection", "partitioning", "steps"],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -44,14 +44,15 @@
         }
       }
     },
-    "source": {
+    "partitioning": {
       "type": "object",
-      "required": ["window", "chunking"],
+      "required": ["strategy", "window"],
       "additionalProperties": false,
       "properties": {
-        "schema": {
+        "strategy": {
           "type": "string",
-          "description": "Source database schema"
+          "enum": ["time_range"],
+          "description": "Partitioning strategy"
         },
         "window": {
           "type": "object",
@@ -70,21 +71,10 @@
             }
           }
         },
-        "chunking": {
+        "adaptive": {
           "type": "object",
-          "required": ["strategy", "column"],
           "additionalProperties": false,
           "properties": {
-            "strategy": {
-              "type": "string",
-              "enum": ["time_range"],
-              "description": "Chunking strategy"
-            },
-            "column": {
-              "type": "string",
-              "minLength": 1,
-              "description": "Column used for chunking"
-            },
             "initial_width": {
               "type": "string",
               "pattern": "^[0-9]+(ms|s|m|h)$",
@@ -109,28 +99,35 @@
         }
       }
     },
-    "execution": {
+    "runtime": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "concurrency": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Number of parallel chunk workers"
-        },
-        "max_retries": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Maximum retries per failed chunk"
-        },
-        "max_rows": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Soft cap on total rows (0 = no limit)"
-        },
-        "dry_run": {
-          "type": "boolean",
-          "description": "Print the plan without executing"
+        "defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "concurrency": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of parallel chunk workers"
+            },
+            "max_retries": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum retries per failed chunk"
+            },
+            "max_rows": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Soft cap on total rows (0 = no limit)"
+            },
+            "statement_timeout": {
+              "type": "string",
+              "pattern": "^[0-9]+(ms|s|m|h)$",
+              "description": "Maximum statement execution time"
+            }
+          }
         }
       }
     },
@@ -141,33 +138,6 @@
         "path": {
           "type": "string",
           "description": "Path to the progress tracking file"
-        },
-        "fresh": {
-          "type": "boolean",
-          "description": "Delete progress file and start from scratch"
-        }
-      }
-    },
-    "safety": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "statement_timeout": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m|h)$",
-          "description": "Maximum statement execution time"
-        },
-        "truncate_targets": {
-          "type": "boolean",
-          "description": "Truncate target tables before loading"
-        },
-        "drop_indexes": {
-          "type": "boolean",
-          "description": "Drop non-PK/non-unique indexes before loading"
-        },
-        "rebuild_indexes": {
-          "type": "boolean",
-          "description": "Recreate indexes after loading"
         }
       }
     },
@@ -177,7 +147,7 @@
       "description": "Ordered list of backfill steps",
       "items": {
         "type": "object",
-        "required": ["name", "target", "sql"],
+        "required": ["name", "morph"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -185,26 +155,41 @@
             "minLength": 1,
             "description": "Unique step name"
           },
-          "target": {
+          "morph": {
             "type": "object",
-            "required": ["table"],
+            "required": ["partition_by", "from", "into"],
             "additionalProperties": false,
             "properties": {
-              "schema": {
-                "type": "string",
-                "description": "Target database schema"
-              },
-              "table": {
+              "partition_by": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Target table name"
+                "description": "Column used for time-range partitioning"
+              },
+              "from": {
+                "type": "object",
+                "required": ["sql"],
+                "additionalProperties": false,
+                "properties": {
+                  "sql": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "SELECT query to read source data"
+                  }
+                }
+              },
+              "into": {
+                "type": "object",
+                "required": ["sql"],
+                "additionalProperties": false,
+                "properties": {
+                  "sql": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "INSERT statement with optional ON CONFLICT clause"
+                  }
+                }
               }
             }
-          },
-          "sql": {
-            "type": "string",
-            "minLength": 1,
-            "description": "SQL statement to execute. Use $1 and $2 for chunk window start/end"
           }
         }
       }

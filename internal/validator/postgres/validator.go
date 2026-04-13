@@ -12,8 +12,12 @@ type Validator struct{}
 
 type jobFile struct {
 	Steps []struct {
-		Name string `yaml:"name"`
-		SQL  string `yaml:"sql"`
+		Name  string `yaml:"name"`
+		Morph struct {
+			From struct {
+				SQL string `yaml:"sql"`
+			} `yaml:"from"`
+		} `yaml:"morph"`
 	} `yaml:"steps"`
 }
 
@@ -25,11 +29,11 @@ func (v *Validator) Validate(data []byte) error {
 
 	var errs []string
 	for _, step := range jf.Steps {
-		if step.SQL == "" {
+		if step.Morph.From.SQL == "" {
 			continue
 		}
-		if _, err := pgquery.Parse(step.SQL); err != nil {
-			errs = append(errs, fmt.Sprintf("step %q: %s", step.Name, err))
+		if _, err := pgquery.Parse(step.Morph.From.SQL); err != nil {
+			errs = append(errs, fmt.Sprintf("step %q from.sql: %s", step.Name, err))
 		}
 	}
 

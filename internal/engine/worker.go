@@ -163,7 +163,7 @@ func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk
 			StepName:  step.Name,
 		})
 
-		rows, duration, err := wp.execSQL(ctx, step.SQL, chunk.Start, chunk.End)
+		rows, duration, err := wp.execSQL(ctx, step.ComposeSQL(), chunk.Start, chunk.End)
 		if err != nil {
 			return totalRows, fmt.Errorf("step %q: %w", step.Name, err)
 		}
