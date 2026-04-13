@@ -22,7 +22,7 @@ func PreviewCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "preview",
 		Usage:     "Preview the execution plan for a morph job without running it",
-		UsageText: "morph preview <job file>",
+		UsageText: "morph preview <job name>",
 		Flags: []cli.Flag{
 			flags.JobDirFlag(),
 		},
