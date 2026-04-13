@@ -77,8 +77,7 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 	if cfg.Job.Description != "" {
 		fmt.Printf("  Description:    %s\n", cfg.Job.Description)
 	}
-	fmt.Printf("  Driver:         %s\n", cfg.Connection.Driver)
-	fmt.Printf("  DSN Env:        %s\n", cfg.Connection.DSNEnv)
+	fmt.Printf("  Driver:         %s\n", cfg.Driver)
 	fmt.Println()
 
 	// Partitioning.
@@ -150,14 +149,14 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Row estimate — only if DB is reachable.
-	dsn, _ := flags.ResolveDSN(cmd, cfg.Connection.DSNEnv)
+	dsn, _ := flags.ResolveDSN(cmd)
 	if dsn != "" {
-		db, err := sql.Open(cfg.Connection.Driver, dsn)
+		db, err := sql.Open(cfg.Driver, dsn)
 		if err == nil {
 			defer func() { _ = db.Close() }()
 			if db.PingContext(ctx) == nil {
 				var p previewer.Previewer
-				switch cfg.Connection.Driver {
+				switch cfg.Driver {
 				case "postgres":
 					p = pgprev.New(db)
 				}

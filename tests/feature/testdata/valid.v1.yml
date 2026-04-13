@@ -4,9 +4,7 @@ job:
   name: validate-test
   description: validation feature test
 
-connection:
-  driver: postgres
-  dsn_env: MORPH_TEST_DSN
+driver: postgres
 
 partitioning:
   strategy: time_range

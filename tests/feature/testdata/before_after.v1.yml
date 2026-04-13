@@ -4,9 +4,7 @@ job:
   name: before-after-hooks
   description: test before and after hooks
 
-connection:
-  driver: postgres
-  dsn_env: MORPH_TEST_DSN
+driver: postgres
 
 partitioning:
   strategy: time_range

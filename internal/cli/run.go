@@ -97,7 +97,7 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Connect to database.
-	dsn, err := flags.ResolveDSN(cmd, cfg.Connection.DSNEnv)
+	dsn, err := flags.ResolveDSN(cmd)
 	if err != nil {
 		return err
 	}
@@ -168,14 +168,14 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Start database health monitor.
-	switch cfg.Connection.Driver {
+	switch cfg.Driver {
 	case "postgres":
 		mon := pgmon.New(db)
 		if err := mon.Init(runCtx); err == nil {
 			monitor.RunCollector(runCtx, mon, program, 2*time.Second)
 		}
 	default:
-		fmt.Printf("Warning: no monitor available for driver %q, skipping DB health\n", cfg.Connection.Driver)
+		fmt.Printf("Warning: no monitor available for driver %q, skipping DB health\n", cfg.Driver)
 	}
 
 	// Build and run worker pool.

@@ -4,9 +4,7 @@ job:
   name: resume-test
   description: resume test - first day only
 
-connection:
-  driver: postgres
-  dsn_env: MORPH_TEST_DSN
+driver: postgres
 
 partitioning:
   strategy: time_range

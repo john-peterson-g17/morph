@@ -4,9 +4,7 @@ job:
   name: { { .Name } }
   description: ""
 
-connection:
-  driver: postgres
-  dsn_env: DATABASE_URL
+driver: postgres
 
 partitioning:
   strategy: time_range

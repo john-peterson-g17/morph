@@ -3,7 +3,7 @@
   "title": "Morph Job",
   "description": "Schema for morph backfill job configuration files",
   "type": "object",
-  "required": ["version", "job", "connection", "partitioning", "steps"],
+  "required": ["version", "job", "driver", "partitioning", "steps"],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -27,22 +27,10 @@
         }
       }
     },
-    "connection": {
-      "type": "object",
-      "required": ["driver", "dsn_env"],
-      "additionalProperties": false,
-      "properties": {
-        "driver": {
-          "type": "string",
-          "enum": ["postgres"],
-          "description": "Database driver"
-        },
-        "dsn_env": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Environment variable containing the database connection string"
-        }
-      }
+    "driver": {
+      "type": "string",
+      "enum": ["postgres"],
+      "description": "Database driver"
     },
     "partitioning": {
       "type": "object",

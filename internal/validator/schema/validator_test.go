@@ -12,9 +12,7 @@ job:
   name: test-job
   description: A test backfill
 
-connection:
-  driver: postgres
-  dsn_env: DATABASE_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -59,9 +57,7 @@ version: v1
 job:
   name: minimal
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -89,9 +85,7 @@ func TestValidate_MissingVersion(t *testing.T) {
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -121,9 +115,7 @@ version: v1
 job:
   description: no name
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -146,7 +138,7 @@ steps:
 	}
 }
 
-func TestValidate_MissingConnection(t *testing.T) {
+func TestValidate_MissingDriver(t *testing.T) {
 	data := []byte(`
 version: v1
 
@@ -170,7 +162,7 @@ steps:
 `)
 	v := &Validator{}
 	if err := v.Validate(data); err == nil {
-		t.Error("expected error for missing connection")
+		t.Error("expected error for missing driver")
 	}
 }
 
@@ -181,9 +173,7 @@ version: v1
 job:
   name: test
 
-connection:
-  driver: mysql
-  dsn_env: DB_URL
+driver: mysql
 
 partitioning:
   strategy: time_range
@@ -213,9 +203,7 @@ version: v1
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -236,9 +224,7 @@ version: v1
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -261,9 +247,7 @@ version: v99
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -293,9 +277,7 @@ version: v1
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: id_range
@@ -325,9 +307,7 @@ version: v1
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -360,9 +340,7 @@ job:
   name: test
   unknown_field: bad
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -392,9 +370,7 @@ version: v1
 job:
   name: hooks-test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range
@@ -430,9 +406,7 @@ version: v1
 job:
   name: test
 
-connection:
-  driver: postgres
-  dsn_env: DB_URL
+driver: postgres
 
 partitioning:
   strategy: time_range

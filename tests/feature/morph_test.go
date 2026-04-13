@@ -31,7 +31,7 @@ func TestSingleStepBackfill(t *testing.T) {
 	progressDir := t.TempDir()
 	out, err := runMorph(t,
 		[]string{"run", testdataFile("single_step.v1.yml"), "--progress-dir", progressDir},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("morph run failed: %v\noutput: %s", err, out)
@@ -59,7 +59,7 @@ func TestSingleStepBackfillWithConflictClause(t *testing.T) {
 	// Run twice — second run should not fail due to ON CONFLICT.
 	out, err := runMorph(t,
 		[]string{"run", jobFile, "--progress-dir", progressDir},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("first run failed: %v\noutput: %s", err, out)
@@ -67,7 +67,7 @@ func TestSingleStepBackfillWithConflictClause(t *testing.T) {
 
 	out, err = runMorph(t,
 		[]string{"run", jobFile, "--progress-dir", progressDir, "--fresh"},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("second (idempotent) run failed: %v\noutput: %s", err, out)
@@ -100,7 +100,7 @@ func TestMultiStepBackfill(t *testing.T) {
 	progressDir := t.TempDir()
 	out, err := runMorph(t,
 		[]string{"run", testdataFile("multi_step.v1.yml"), "--progress-dir", progressDir},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("morph run failed: %v\noutput: %s", err, out)
@@ -128,7 +128,7 @@ func TestConcurrentBackfill(t *testing.T) {
 	progressDir := t.TempDir()
 	out, err := runMorph(t,
 		[]string{"run", testdataFile("concurrent.v1.yml"), "--progress-dir", progressDir, "--concurrency", "4"},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("morph run failed: %v\noutput: %s", err, out)
@@ -156,7 +156,7 @@ func TestResumeFromProgress(t *testing.T) {
 	// First run: job file with window covering only the first day.
 	out, err := runMorph(t,
 		[]string{"run", testdataFile("resume_partial.v1.yml"), "--progress-dir", progressDir},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("first run failed: %v\noutput: %s", err, out)
@@ -173,7 +173,7 @@ func TestResumeFromProgress(t *testing.T) {
 	// Second run: full window, same progress dir — should resume and complete.
 	out, err = runMorph(t,
 		[]string{"run", testdataFile("resume_full.v1.yml"), "--progress-dir", progressDir},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("second run failed: %v\noutput: %s", err, out)
@@ -229,7 +229,7 @@ func TestBeforeAfterHooks(t *testing.T) {
 	progressDir := t.TempDir()
 	out, err := runMorph(t,
 		[]string{"run", testdataFile("before_after.v1.yml"), "--progress-dir", progressDir},
-		"MORPH_TEST_DSN="+testDSN(),
+		"DATABASE_URL="+testDSN(),
 	)
 	if err != nil {
 		t.Fatalf("morph run failed: %v\noutput: %s", err, out)

@@ -13,7 +13,7 @@ import (
 type Config struct {
 	Version      string       `yaml:"version"`
 	Job          JobMeta      `yaml:"job"`
-	Connection   Connection   `yaml:"connection"`
+	Driver       string       `yaml:"driver"`
 	Partitioning Partitioning `yaml:"partitioning"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Progress     Progress     `yaml:"progress"`
@@ -23,11 +23,6 @@ type Config struct {
 type JobMeta struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
-}
-
-type Connection struct {
-	Driver string `yaml:"driver"`
-	DSNEnv string `yaml:"dsn_env"`
 }
 
 type Partitioning struct {
@@ -139,11 +134,8 @@ func (c *Config) Validate() error {
 	if c.Job.Name == "" {
 		return fmt.Errorf("job.name is required")
 	}
-	if c.Connection.Driver == "" {
-		return fmt.Errorf("connection.driver is required")
-	}
-	if c.Connection.DSNEnv == "" {
-		return fmt.Errorf("connection.dsn_env is required")
+	if c.Driver == "" {
+		return fmt.Errorf("driver is required")
 	}
 	if c.Partitioning.Window.Start.IsZero() || c.Partitioning.Window.End.IsZero() {
 		return fmt.Errorf("partitioning.window.start and partitioning.window.end are required")

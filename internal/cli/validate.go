@@ -28,9 +28,7 @@ func ValidateCommand() *cli.Command {
 
 // driverHeader is used to extract the driver from the job file.
 type driverHeader struct {
-	Connection struct {
-		Driver string `yaml:"driver"`
-	} `yaml:"connection"`
+	Driver string `yaml:"driver"`
 }
 
 func runValidate(ctx context.Context, cmd *cli.Command) error {
@@ -52,7 +50,7 @@ func runValidate(ctx context.Context, cmd *cli.Command) error {
 	// Add driver-specific validators
 	var hdr driverHeader
 	if err := yaml.Unmarshal(data, &hdr); err == nil {
-		driver := hdr.Connection.Driver
+		driver := hdr.Driver
 		if driver == "" {
 			driver = "postgres"
 		}

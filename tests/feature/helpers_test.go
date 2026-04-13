@@ -15,10 +15,10 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// testDSN returns the DSN for the test database. It reads from MORPH_TEST_DSN
+// testDSN returns the DSN for the test database. It reads from DATABASE_URL
 // or falls back to the compose defaults.
 func testDSN() string {
-	if dsn := os.Getenv("MORPH_TEST_DSN"); dsn != "" {
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
 		return dsn
 	}
 	return "postgres://morph:password@localhost:5432/morph?sslmode=disable"
