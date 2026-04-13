@@ -158,7 +158,7 @@ func indexExists(t *testing.T, db *sql.DB, indexName string) bool {
 // cleanup drops test tables.
 func cleanup(t *testing.T, db *sql.DB) {
 	t.Helper()
-	db.Exec(`DROP TABLE IF EXISTS morph_test_target`)
-	db.Exec(`DROP TABLE IF EXISTS morph_test_target_2`)
-	db.Exec(`DROP TABLE IF EXISTS morph_test_source`)
+	_, _ = db.Exec(`DROP TABLE IF EXISTS morph_test_target`)
+	_, _ = db.Exec(`DROP TABLE IF EXISTS morph_test_target_2`)
+	_, _ = db.Exec(`DROP TABLE IF EXISTS morph_test_source`)
 }

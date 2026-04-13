@@ -45,7 +45,7 @@ func runCreate(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := tmpl.Execute(f, map[string]string{"Name": jobName}); err != nil {
 		return fmt.Errorf("writing template: %w", err)

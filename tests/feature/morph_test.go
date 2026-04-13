@@ -19,7 +19,7 @@ func testdataFile(name string) string {
 
 func TestSingleStepBackfill(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	setupSchema(t, db)
 	defer cleanup(t, db)
@@ -44,7 +44,7 @@ func TestSingleStepBackfill(t *testing.T) {
 
 func TestSingleStepBackfillWithConflictClause(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	setupSchema(t, db)
 	defer cleanup(t, db)
@@ -80,7 +80,7 @@ func TestSingleStepBackfillWithConflictClause(t *testing.T) {
 
 func TestMultiStepBackfill(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	setupSchema(t, db)
 	defer cleanup(t, db)
@@ -116,7 +116,7 @@ func TestMultiStepBackfill(t *testing.T) {
 
 func TestConcurrentBackfill(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	setupSchema(t, db)
 	defer cleanup(t, db)
@@ -141,7 +141,7 @@ func TestConcurrentBackfill(t *testing.T) {
 
 func TestResumeFromProgress(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	setupSchema(t, db)
 	defer cleanup(t, db)
@@ -200,11 +200,11 @@ func TestValidateCommandRejectsInvalid(t *testing.T) {
 
 func TestBeforeAfterHooks(t *testing.T) {
 	db := openTestDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	setupSchema(t, db)
 	defer cleanup(t, db)
-	defer db.Exec(`DROP INDEX IF EXISTS idx_morph_test_target_value`)
+	defer func() { _, _ = db.Exec(`DROP INDEX IF EXISTS idx_morph_test_target_value`) }()
 
 	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)

@@ -107,7 +107,7 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("connecting to database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.PingContext(ctx); err != nil {
 		return fmt.Errorf("pinging database: %w", err)

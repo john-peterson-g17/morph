@@ -13,9 +13,7 @@ func Run(jobName string, concurrency int, cancel context.CancelFunc, debug bool)
 	p := tea.NewProgram(m)
 
 	go func() {
-		if _, err := p.Run(); err != nil {
-			// Program exited — nothing to do.
-		}
+		_, _ = p.Run()
 	}()
 
 	return p, nil

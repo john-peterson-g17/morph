@@ -20,7 +20,7 @@ func main() {
 		Commands: []*urfavecli.Command{
 			cli.RunCommand(),
 			cli.ValidateCommand(),
-			cli.PlanCommand(),
+			cli.PreviewCommand(),
 			cli.CreateCommand(),
 		},
 	}
