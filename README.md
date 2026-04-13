@@ -4,7 +4,7 @@
 
 It’s designed for production systems where large datasets need to be reshaped without downtime. Morph handles chunking, progress tracking, and controlled load so you can migrate data safely alongside live application traffic.
 
-> [WARNING]
+> [!WARNING]
 > This project is in early development. Expect breaking changes and missing features. Feedback and contributions are welcome!
 
 ---
