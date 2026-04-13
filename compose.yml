@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: morph
+      POSTGRES_USER: morph
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - 5432
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "psql -U morph -d morph -h localhost -c 'SELECT 1;' || exit 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local

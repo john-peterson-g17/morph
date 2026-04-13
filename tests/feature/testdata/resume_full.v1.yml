@@ -1,0 +1,46 @@
+version: v1
+
+job:
+  name: resume-test
+  description: resume test - full window
+
+connection:
+  driver: postgres
+  dsn_env: MORPH_TEST_DSN
+
+partitioning:
+  strategy: time_range
+
+  window:
+    start: "2025-01-01T00:00:00Z"
+    end: "2025-01-03T00:00:00Z"
+
+  adaptive:
+    initial_width: 12h
+    min_width: 1h
+    max_width: 24h
+    target_runtime: 30s
+
+runtime:
+  defaults:
+    concurrency: 1
+    max_retries: 0
+    max_rows: 0
+    statement_timeout: 1h
+
+progress:
+  path: ""
+
+steps:
+  - name: resume_copy
+    morph:
+      partition_by: ts
+
+      from:
+        sql: |
+          SELECT id, name, value, ts FROM morph_test_source
+
+      into:
+        sql: |
+          INSERT INTO morph_test_target (id, name, value, ts)
+          ON CONFLICT (id) DO NOTHING

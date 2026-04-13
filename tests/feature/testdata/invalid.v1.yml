@@ -1,0 +1,8 @@
+version: v1
+
+job:
+  name: invalid-test
+
+connection:
+  driver: postgres
+  dsn_env: MORPH_TEST_DSN

@@ -1,0 +1,46 @@
+version: v1
+
+job:
+  name: validate-test
+  description: validation feature test
+
+connection:
+  driver: postgres
+  dsn_env: MORPH_TEST_DSN
+
+partitioning:
+  strategy: time_range
+
+  window:
+    start: "2025-01-01T00:00:00Z"
+    end: "2025-01-02T00:00:00Z"
+
+  adaptive:
+    initial_width: 6h
+    min_width: 1h
+    max_width: 24h
+    target_runtime: 30s
+
+runtime:
+  defaults:
+    concurrency: 1
+    max_retries: 0
+    max_rows: 0
+    statement_timeout: 1h
+
+progress:
+  path: ""
+
+steps:
+  - name: copy_rows
+    morph:
+      partition_by: ts
+
+      from:
+        sql: |
+          SELECT id, name FROM some_table
+
+      into:
+        sql: |
+          INSERT INTO other_table (id, name)
+          ON CONFLICT (id) DO NOTHING
