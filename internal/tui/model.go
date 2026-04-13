@@ -30,14 +30,15 @@ type Model struct {
 	chunksFailed    int
 	estimatedChunks int
 	startTime       time.Time
-	recentLog       []string
+	recentLog       []logEntry
 	done            bool
 	loadErr         error
 	cancel          context.CancelFunc
+	debug           bool
 }
 
 // New creates a new TUI model for a morph job.
-func New(jobName string, concurrency int, cancel context.CancelFunc) Model {
+func New(jobName string, concurrency int, cancel context.CancelFunc, debug bool) Model {
 	workers := make([]workerDisplay, concurrency)
 	for i := range workers {
 		workers[i] = workerDisplay{id: i + 1, idle: true}
@@ -47,6 +48,7 @@ func New(jobName string, concurrency int, cancel context.CancelFunc) Model {
 		workers:   workers,
 		startTime: time.Now(),
 		cancel:    cancel,
+		debug:     debug,
 	}
 }
 
@@ -100,16 +102,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chunksOK++
 
 		chunkWidth := msg.Chunk.End.Sub(msg.Chunk.Start)
-		entry := fmt.Sprintf("#%d  %s → %s (%s)  %s rows  %s",
+		text := fmt.Sprintf("#%d  %s → %s (%s)  %s rows  %s",
 			msg.WorkerID,
 			msg.Chunk.Start.Format("01-02 15:04"),
 			msg.Chunk.End.Format("15:04"),
 			engine.FormatDuration(chunkWidth),
 			engine.FormatRows(msg.Rows),
 			engine.FormatDuration(msg.Duration))
-		m.recentLog = append(m.recentLog, entry)
-		if len(m.recentLog) > 8 {
-			m.recentLog = m.recentLog[len(m.recentLog)-8:]
+		m.recentLog = append(m.recentLog, logEntry{text: text, queries: msg.Queries})
+		maxLog := 8
+		if m.debug {
+			maxLog = 4
+		}
+		if len(m.recentLog) > maxLog {
+			m.recentLog = m.recentLog[len(m.recentLog)-maxLog:]
 		}
 
 	case engine.MsgChunkFailed:
@@ -118,13 +124,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Retrying {
 			status = "RETRYING"
 		}
-		entry := fmt.Sprintf("%s → %s  %s: %v",
+		text := fmt.Sprintf("%s → %s  %s: %v",
 			msg.Chunk.Start.Format("01-02 15:04"),
 			msg.Chunk.End.Format("15:04"),
 			status, msg.Err)
-		m.recentLog = append(m.recentLog, entry)
-		if len(m.recentLog) > 8 {
-			m.recentLog = m.recentLog[len(m.recentLog)-8:]
+		m.recentLog = append(m.recentLog, logEntry{text: text})
+		maxLog := 8
+		if m.debug {
+			maxLog = 4
+		}
+		if len(m.recentLog) > maxLog {
+			m.recentLog = m.recentLog[len(m.recentLog)-maxLog:]
 		}
 
 	case engine.MsgJobDone:
@@ -158,6 +168,22 @@ func (m Model) View() string {
 	b.WriteString(fmt.Sprintf("  %s rows loaded%s%s\n",
 		boldStyle.Render(engine.FormatRows(m.totalLoaded)),
 		rateStr, etaStr))
+
+	// Progress bar.
+	if m.estimatedChunks > 0 {
+		pct := float64(m.chunksOK) / float64(m.estimatedChunks)
+		if pct > 1 {
+			pct = 1
+		}
+		const barWidth = 30
+		filled := int(pct * barWidth)
+		if filled > barWidth {
+			filled = barWidth
+		}
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		b.WriteString(fmt.Sprintf("  [%s] %.1f%%\n",
+			barFillStyle.Render(bar), pct*100))
+	}
 
 	chunksStr := fmt.Sprintf("  Elapsed: %s  Chunks: %d done", engine.FormatDuration(elapsed), m.chunksOK)
 	if m.estimatedChunks > 0 && m.estimatedChunks > m.chunksOK {
@@ -218,7 +244,14 @@ func (m Model) View() string {
 		b.WriteString(headerStyle.Render("Completed"))
 		b.WriteString("\n")
 		for _, entry := range m.recentLog {
-			b.WriteString(fmt.Sprintf("  %s\n", entry))
+			b.WriteString(fmt.Sprintf("  %s\n", entry.text))
+			if m.debug {
+				for _, q := range entry.queries {
+					b.WriteString(dimStyle.Render(fmt.Sprintf("    [DEBUG]: Query Executed: %s",
+						strings.Join(strings.Fields(q), " "))))
+					b.WriteString("\n")
+				}
+			}
 		}
 	}
 

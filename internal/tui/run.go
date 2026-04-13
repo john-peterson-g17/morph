@@ -8,8 +8,8 @@ import (
 
 // Run starts the TUI and returns a program handle for sending messages.
 // The TUI runs in a background goroutine.
-func Run(jobName string, concurrency int, cancel context.CancelFunc) (*tea.Program, error) {
-	m := New(jobName, concurrency, cancel)
+func Run(jobName string, concurrency int, cancel context.CancelFunc, debug bool) (*tea.Program, error) {
+	m := New(jobName, concurrency, cancel, debug)
 	p := tea.NewProgram(m)
 
 	go func() {

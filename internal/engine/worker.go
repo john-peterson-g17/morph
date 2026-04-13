@@ -115,7 +115,7 @@ func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk Chun
 			Chunk:    chunk,
 		})
 
-		totalStepRows, err := wp.executeChunkSteps(ctx, workerID, chunk)
+		totalStepRows, queries, err := wp.executeChunkSteps(ctx, workerID, chunk)
 		if err == nil {
 			chunkDuration := time.Since(chunkStart)
 			currentWidth := wp.planner.CurrentWidth()
@@ -130,6 +130,7 @@ func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk Chun
 				NextWidth:       currentWidth,
 				TotalLoaded:     wp.totalRows.Load(),
 				EstimatedChunks: wp.planner.EstimatedTotalChunks(0),
+				Queries:         queries,
 			})
 			return nil
 		}
@@ -149,12 +150,13 @@ func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk Chun
 	return nil
 }
 
-func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk ChunkRange) (int64, error) {
+func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk ChunkRange) (int64, []string, error) {
 	var totalRows int64
+	var queries []string
 
 	for i, step := range wp.steps {
 		if ctx.Err() != nil {
-			return totalRows, ctx.Err()
+			return totalRows, queries, ctx.Err()
 		}
 
 		wp.program.Send(MsgStepStart{
@@ -163,10 +165,13 @@ func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk
 			StepName:  step.Name,
 		})
 
-		rows, duration, err := wp.execSQL(ctx, step.ComposeSQL(), chunk.Start, chunk.End)
+		query := step.ComposeSQL()
+		rows, duration, err := wp.execSQL(ctx, query, chunk.Start, chunk.End)
 		if err != nil {
-			return totalRows, fmt.Errorf("step %q: %w", step.Name, err)
+			return totalRows, queries, fmt.Errorf("step %q: %w", step.Name, err)
 		}
+
+		queries = append(queries, query)
 
 		wp.progress.MarkChunkStepDone(chunk, step.Name, rows, duration)
 		totalRows += rows
@@ -178,10 +183,11 @@ func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk
 			StepName:  step.Name,
 			Rows:      rows,
 			Duration:  duration,
+			SQL:       query,
 		})
 	}
 
-	return totalRows, nil
+	return totalRows, queries, nil
 }
 
 func (wp *WorkerPool) execSQL(ctx context.Context, query string, chunkStart, chunkEnd time.Time) (int64, time.Duration, error) {

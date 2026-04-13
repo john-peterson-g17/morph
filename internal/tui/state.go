@@ -15,3 +15,9 @@ type workerDisplay struct {
 	started  time.Time
 	idle     bool
 }
+
+// logEntry represents one completed-chunk entry with optional debug queries.
+type logEntry struct {
+	text    string
+	queries []string
+}

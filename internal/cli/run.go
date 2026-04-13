@@ -35,6 +35,10 @@ func RunCommand() *cli.Command {
 				Name:  "fresh",
 				Usage: "Discard previous progress and start from scratch",
 			},
+			&cli.BoolFlag{
+				Name:  "debug",
+				Usage: "Show executed SQL queries in the output",
+			},
 		},
 		Action: runBackfill,
 	}
@@ -163,7 +167,8 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}()
 
 	// Start TUI.
-	program, err := tui.Run(cfg.Job.Name, concurrency, cancel)
+	debug := cmd.Bool("debug")
+	program, err := tui.Run(cfg.Job.Name, concurrency, cancel, debug)
 	if err != nil {
 		return fmt.Errorf("starting TUI: %w", err)
 	}

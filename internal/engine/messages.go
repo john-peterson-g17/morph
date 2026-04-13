@@ -24,6 +24,7 @@ type MsgStepDone struct {
 	StepName  string
 	Rows      int64
 	Duration  time.Duration
+	SQL       string
 }
 
 // MsgChunkDone signals a chunk completed all steps.
@@ -35,6 +36,7 @@ type MsgChunkDone struct {
 	NextWidth       time.Duration
 	TotalLoaded     int64
 	EstimatedChunks int
+	Queries         []string
 }
 
 // MsgChunkFailed signals a chunk failed.
