@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/urfave/cli/v3"
@@ -14,6 +15,8 @@ import (
 	"github.com/john-peterson-g17/morph/internal/cli/flags"
 	"github.com/john-peterson-g17/morph/internal/engine"
 	"github.com/john-peterson-g17/morph/internal/job"
+	"github.com/john-peterson-g17/morph/internal/monitor"
+	pgmon "github.com/john-peterson-g17/morph/internal/monitor/postgres"
 	"github.com/john-peterson-g17/morph/internal/tui"
 )
 
@@ -171,6 +174,17 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	program, err := tui.Run(cfg.Job.Name, concurrency, cancel, debug)
 	if err != nil {
 		return fmt.Errorf("starting TUI: %w", err)
+	}
+
+	// Start database health monitor.
+	switch cfg.Connection.Driver {
+	case "postgres":
+		mon := pgmon.New(db)
+		if err := mon.Init(runCtx); err == nil {
+			monitor.RunCollector(runCtx, mon, program, 2*time.Second)
+		}
+	default:
+		fmt.Printf("Warning: no monitor available for driver %q, skipping DB health\n", cfg.Connection.Driver)
 	}
 
 	// Build and run worker pool.

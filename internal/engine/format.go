@@ -57,3 +57,21 @@ func CheckCancelled(ctx context.Context) error {
 	}
 	return nil
 }
+
+// FormatBytes returns a human-readable byte size string.
+func FormatBytes(n int64) string {
+	if n < 0 {
+		return "0 B"
+	}
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for n/div >= unit && exp < 3 {
+		div *= unit
+		exp++
+	}
+	suffixes := []string{"KB", "MB", "GB", "TB"}
+	return fmt.Sprintf("%.1f %s", float64(n)/float64(div), suffixes[exp])
+}

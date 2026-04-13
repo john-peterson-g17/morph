@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/john-peterson-g17/morph/internal/engine"
+	"github.com/john-peterson-g17/morph/internal/monitor"
 )
 
 var (
@@ -17,6 +18,7 @@ var (
 	boldStyle    = lipgloss.NewStyle().Bold(true)
 	activeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	barFillStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	warnStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	failStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 )
 
@@ -35,6 +37,7 @@ type Model struct {
 	loadErr         error
 	cancel          context.CancelFunc
 	debug           bool
+	dbHealth        *monitor.Health
 }
 
 // New creates a new TUI model for a morph job.
@@ -141,6 +144,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		m.loadErr = msg.Err
 		return m, tea.Quit
+
+	case monitor.MsgDBStats:
+		m.dbHealth = &msg.Health
 	}
 
 	return m, nil
@@ -255,6 +261,28 @@ func (m Model) View() string {
 		}
 	}
 
+	// Database health section — rendered at the bottom.
+	if m.dbHealth != nil {
+		b.WriteString("\n")
+		overallStyle := styleForLevel(m.dbHealth.Overall)
+		b.WriteString(headerStyle.Render("Database"))
+		b.WriteString("  ")
+		b.WriteString(overallStyle.Render(fmt.Sprintf("%s %s", m.dbHealth.Overall.Icon(), m.dbHealth.Overall)))
+		b.WriteString("\n")
+		for _, sig := range m.dbHealth.Signals {
+			valStyle := styleForLevel(sig.Level)
+			line := fmt.Sprintf("  %-14s %s", sig.Name, valStyle.Render(sig.Value))
+			if sig.Baseline != "" {
+				line += dimStyle.Render(fmt.Sprintf("  baseline %s", sig.Baseline))
+			}
+			if sig.Delta != "" {
+				line += "  " + valStyle.Render(sig.Delta)
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+
 	if m.done {
 		b.WriteString("\n")
 		if m.loadErr != nil {
@@ -268,4 +296,15 @@ func (m Model) View() string {
 	}
 
 	return b.String()
+}
+
+func styleForLevel(l monitor.Level) lipgloss.Style {
+	switch l {
+	case monitor.LevelYellow:
+		return warnStyle
+	case monitor.LevelRed:
+		return failStyle
+	default:
+		return lipgloss.NewStyle()
+	}
 }
