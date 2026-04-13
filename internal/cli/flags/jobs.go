@@ -33,6 +33,28 @@ func ProgressDirFlag() *cli.StringFlag {
 	}
 }
 
+// DSNFlag returns the shared --dsn flag for commands that connect to a database.
+func DSNFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:  "dsn",
+		Usage: "Database connection string (overrides dsn_env from job config)",
+	}
+}
+
+// ResolveDSN returns the database connection string. It prefers the --dsn flag
+// value; if not set it falls back to the environment variable named by dsnEnv.
+func ResolveDSN(cmd *cli.Command, dsnEnv string) (string, error) {
+	if dsn := cmd.String("dsn"); dsn != "" {
+		return dsn, nil
+	}
+	if dsnEnv != "" {
+		if dsn := os.Getenv(dsnEnv); dsn != "" {
+			return dsn, nil
+		}
+	}
+	return "", fmt.Errorf("no database connection string: pass --dsn or set %s", dsnEnv)
+}
+
 // isFilePath returns true if the argument looks like a file path rather than
 // a plain job name (contains path separators or a YAML extension).
 func isFilePath(arg string) bool {

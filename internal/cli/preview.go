@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 
 	_ "github.com/lib/pq"
@@ -25,6 +24,7 @@ func PreviewCommand() *cli.Command {
 		UsageText: "morph preview <job name>",
 		Flags: []cli.Flag{
 			flags.JobDirFlag(),
+			flags.DSNFlag(),
 		},
 		Action: runPreview,
 	}
@@ -150,7 +150,7 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Row estimate — only if DB is reachable.
-	dsn := os.Getenv(cfg.Connection.DSNEnv)
+	dsn, _ := flags.ResolveDSN(cmd, cfg.Connection.DSNEnv)
 	if dsn != "" {
 		db, err := sql.Open(cfg.Connection.Driver, dsn)
 		if err == nil {

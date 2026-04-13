@@ -4,9 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -29,6 +26,7 @@ func RunCommand() *cli.Command {
 		Flags: []cli.Flag{
 			flags.JobDirFlag(),
 			flags.ProgressDirFlag(),
+			flags.DSNFlag(),
 			&cli.IntFlag{
 				Name:  "concurrency",
 				Usage: "Number of parallel chunk workers",
@@ -99,9 +97,9 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Connect to database.
-	dsn := os.Getenv(cfg.Connection.DSNEnv)
-	if dsn == "" {
-		return fmt.Errorf("environment variable %q is not set", cfg.Connection.DSNEnv)
+	dsn, err := flags.ResolveDSN(cmd, cfg.Connection.DSNEnv)
+	if err != nil {
+		return err
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -158,16 +156,9 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	fmt.Printf("Concurrency: %d\n", concurrency)
 	fmt.Println()
 
-	// Set up cancellation via signals.
+	// Set up cancellation context for TUI.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		cancel()
-	}()
 
 	// Start TUI.
 	debug := cmd.Bool("debug")
