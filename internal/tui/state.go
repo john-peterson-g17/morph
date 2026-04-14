@@ -16,8 +16,34 @@ type workerDisplay struct {
 	idle     bool
 }
 
+// completedChunk holds data for a finished chunk row in the completed table.
+type completedChunk struct {
+	workerID int
+	chunk    engine.ChunkRange
+	rows     int64
+	duration time.Duration
+}
+
 // logEntry represents one completed-chunk entry with optional debug queries.
 type logEntry struct {
 	text    string
 	queries []string
 }
+
+// hookEntry represents a completed before/after hook.
+type hookEntry struct {
+	name     string
+	duration time.Duration
+	phase    string
+	err      error
+	skipped  bool
+}
+
+// phase tracks which tab is active.
+type phase int
+
+const (
+	phaseBefore phase = iota
+	phaseMorph
+	phaseAfter
+)

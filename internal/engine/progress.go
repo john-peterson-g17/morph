@@ -228,6 +228,21 @@ func (s *ProgressStore) GetResumePoint() (nextStart time.Time, lastWidth time.Du
 	return cursor, s.data.LastChunkWidth, completed
 }
 
+// TotalRows returns the sum of all rows inserted across completed chunks.
+func (s *ProgressStore) TotalRows() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var total int64
+	for _, c := range s.data.Chunks {
+		if c.Status == "complete" {
+			for _, result := range c.Tables {
+				total += result.RowsInserted
+			}
+		}
+	}
+	return total
+}
+
 // Summary returns aggregate stats from all recorded chunks.
 func (s *ProgressStore) Summary() (completedChunks, failedChunks int, rowsByStep map[string]int64, avgRuntime time.Duration) {
 	s.mu.Lock()

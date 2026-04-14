@@ -155,31 +155,82 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	)
 
 	// Resume from last progress if available.
+	isResume := false
+	var resumedChunks int
+	var resumedRows int64
 	if progress.HasData() {
+		isResume = true
 		nextStart, lastWidth, completed := progress.GetResumePoint()
 		planner.ResumeFrom(nextStart, lastWidth)
-		fmt.Printf("Resuming from %s (%d chunks already completed)\n",
-			nextStart.Format("2006-01-02 15:04"), completed)
+		resumedChunks = completed
+		resumedRows = progress.TotalRows()
 	}
 
 	progress.Init(cfg.Job.Name, cfg.Version, cfg.Partitioning.Window.Start, cfg.Partitioning.Window.End)
-
-	// Print plan summary.
-	fmt.Printf("Job:         %s\n", cfg.Job.Name)
-	fmt.Printf("Window:      %s → %s\n",
-		cfg.Partitioning.Window.Start.Format("2006-01-02 15:04"),
-		cfg.Partitioning.Window.End.Format("2006-01-02 15:04"))
-	fmt.Printf("Steps:       %d (%s)\n", len(cfg.Steps), joinStepNames(cfg))
-	fmt.Printf("Concurrency: %d\n", concurrency)
-	fmt.Println()
 
 	// Set up cancellation context for TUI.
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// Count before/after hooks for tab display.
+	var beforeHooks []struct {
+		label string
+		sql   string
+		run   string
+	}
+	for _, step := range cfg.Steps {
+		for _, hook := range step.Before {
+			label := hook.Name
+			if label == "" {
+				label = step.Name + " (before)"
+			}
+			beforeHooks = append(beforeHooks, struct {
+				label string
+				sql   string
+				run   string
+			}{label, hook.SQL, hook.Run})
+		}
+	}
+	var afterHooks []struct {
+		label string
+		sql   string
+		run   string
+	}
+	for _, step := range cfg.Steps {
+		for _, hook := range step.After {
+			label := hook.Name
+			if label == "" {
+				label = step.Name + " (after)"
+			}
+			afterHooks = append(afterHooks, struct {
+				label string
+				sql   string
+				run   string
+			}{label, hook.SQL, hook.Run})
+		}
+	}
+
+	// Build width label for header.
+	widthLabel := engine.FormatDuration(initialWidth)
+	if cfg.Partitioning.Strategy == "adaptive" || cfg.Partitioning.Adaptive.TargetRuntime != "" {
+		widthLabel += " adaptive"
+	}
+
 	// Start TUI.
 	debug := cmd.Bool("debug")
-	program, err := tui.Run(cfg.Job.Name, concurrency, cancel, debug)
+	program, err := tui.Run(tui.RunOpts{
+		JobName:       cfg.Job.Name,
+		Version:       cfg.Version,
+		Concurrency:   concurrency,
+		WidthLabel:    widthLabel,
+		StepName:      joinStepNames(cfg),
+		BeforeTotal:   len(beforeHooks),
+		AfterTotal:    len(afterHooks),
+		ResumedChunks: resumedChunks,
+		ResumedRows:   resumedRows,
+		Cancel:        cancel,
+		Debug:         debug,
+	})
 	if err != nil {
 		return fmt.Errorf("starting TUI: %w", err)
 	}
@@ -200,34 +251,103 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	maxRows := int64(cfg.Runtime.Defaults.MaxRows)
 
 	// Execute before hooks for all steps.
-	for _, step := range cfg.Steps {
-		for _, hook := range step.Before {
-			label := hook.Name
-			if label == "" {
-				label = step.Name + " (before)"
+	for i, hook := range beforeHooks {
+		if runCtx.Err() != nil {
+			break
+		}
+
+		// Skip "once" hooks on resume (empty defaults to "once").
+		skipHook := isResume && hook.run != "always"
+
+		program.Send(engine.MsgHookStart{
+			Phase: "before",
+			Name:  hook.label,
+			Index: i,
+			Total: len(beforeHooks),
+		})
+
+		if skipHook {
+			program.Send(engine.MsgHookDone{
+				Phase:   "before",
+				Name:    hook.label,
+				Index:   i,
+				Total:   len(beforeHooks),
+				Skipped: true,
+			})
+			continue
+		}
+
+		start := time.Now()
+		_, execErr := db.ExecContext(runCtx, hook.sql)
+		program.Send(engine.MsgHookDone{
+			Phase:    "before",
+			Name:     hook.label,
+			Index:    i,
+			Total:    len(beforeHooks),
+			Duration: time.Since(start),
+			Err:      execErr,
+		})
+		if execErr != nil {
+			if runCtx.Err() != nil {
+				break
 			}
-			fmt.Printf("Running: %s\n", label)
-			if _, err := db.ExecContext(runCtx, hook.SQL); err != nil {
-				return fmt.Errorf("before hook %q: %w", label, err)
-			}
+			program.Send(engine.MsgJobDone{Err: fmt.Errorf("before hook %q: %w", hook.label, execErr)})
+			program.Wait()
+			return fmt.Errorf("before hook %q: %w", hook.label, execErr)
 		}
 	}
 
 	pool := engine.NewWorkerPool(db, planner, progress, cfg.Steps, concurrency, maxRetries, maxRows, program)
+	if resumedChunks > 0 {
+		pool.ResumeFrom(resumedRows, resumedChunks)
+	}
 	poolErr := pool.Run(runCtx)
 
 	// Execute after hooks for all steps (only if job succeeded).
 	if poolErr == nil {
-		for _, step := range cfg.Steps {
-			for _, hook := range step.After {
-				label := hook.Name
-				if label == "" {
-					label = step.Name + " (after)"
+		for i, hook := range afterHooks {
+			if runCtx.Err() != nil {
+				break
+			}
+
+			// Skip "once" hooks on resume (empty defaults to "once").
+			skipHook := isResume && hook.run != "always"
+
+			program.Send(engine.MsgHookStart{
+				Phase: "after",
+				Name:  hook.label,
+				Index: i,
+				Total: len(afterHooks),
+			})
+
+			if skipHook {
+				program.Send(engine.MsgHookDone{
+					Phase:   "after",
+					Name:    hook.label,
+					Index:   i,
+					Total:   len(afterHooks),
+					Skipped: true,
+				})
+				continue
+			}
+
+			start := time.Now()
+			_, execErr := db.ExecContext(runCtx, hook.sql)
+			program.Send(engine.MsgHookDone{
+				Phase:    "after",
+				Name:     hook.label,
+				Index:    i,
+				Total:    len(afterHooks),
+				Duration: time.Since(start),
+				Err:      execErr,
+			})
+			if execErr != nil {
+				if runCtx.Err() != nil {
+					break
 				}
-				fmt.Printf("Running: %s\n", label)
-				if _, err := db.ExecContext(runCtx, hook.SQL); err != nil {
-					return fmt.Errorf("after hook %q: %w", label, err)
-				}
+				program.Send(engine.MsgJobDone{Err: fmt.Errorf("after hook %q: %w", hook.label, execErr)})
+				program.Wait()
+				return fmt.Errorf("after hook %q: %w", hook.label, execErr)
 			}
 		}
 	}
@@ -236,13 +356,16 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	program.Send(engine.MsgJobDone{Err: poolErr})
 	program.Wait()
 
+	// If cancelled, exit cleanly.
+	if runCtx.Err() != nil {
+		_ = engine.CheckCancelled(runCtx)
+		return nil
+	}
+
 	// Print final summary.
 	completedChunks, failedChunks, rowsByStep, avgRuntime := progress.Summary()
 	fmt.Println()
 	if poolErr != nil {
-		if engine.CheckCancelled(runCtx) != nil {
-			return nil
-		}
 		fmt.Printf("✗ Job failed: %v\n", poolErr)
 	} else {
 		fmt.Printf("✓ Job complete\n")

@@ -14,14 +14,15 @@ import (
 
 // WorkerPool orchestrates concurrent chunk processing for a morph job.
 type WorkerPool struct {
-	concurrency int
-	db          *sql.DB
-	planner     *ChunkPlanner
-	progress    *ProgressStore
-	steps       []job.Step
-	maxRetries  int
-	maxRows     int64
-	program     *tea.Program
+	concurrency   int
+	db            *sql.DB
+	planner       *ChunkPlanner
+	progress      *ProgressStore
+	steps         []job.Step
+	maxRetries    int
+	maxRows       int64
+	program       *tea.Program
+	resumedChunks int
 
 	totalRows atomic.Int64
 }
@@ -40,7 +41,12 @@ func NewWorkerPool(db *sql.DB, planner *ChunkPlanner, progress *ProgressStore, s
 	}
 }
 
-// Run dispatches chunks to workers. Blocks until done or ctx is cancelled.
+// ResumeFrom seeds the worker pool with previously completed row counts
+// so that TotalLoaded and EstimatedChunks are correct on resume.
+func (wp *WorkerPool) ResumeFrom(priorRows int64, priorChunks int) {
+	wp.totalRows.Store(priorRows)
+	wp.resumedChunks = priorChunks
+}
 func (wp *WorkerPool) Run(ctx context.Context) error {
 	chunks := make(chan ChunkRange, wp.concurrency)
 	var wg sync.WaitGroup
@@ -129,7 +135,7 @@ func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk Chun
 				Duration:        chunkDuration,
 				NextWidth:       currentWidth,
 				TotalLoaded:     wp.totalRows.Load(),
-				EstimatedChunks: wp.planner.EstimatedTotalChunks(0),
+				EstimatedChunks: wp.planner.EstimatedTotalChunks(wp.resumedChunks),
 				Queries:         queries,
 			})
 			return nil

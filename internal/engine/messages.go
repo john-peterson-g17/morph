@@ -47,6 +47,25 @@ type MsgChunkFailed struct {
 	Retrying bool
 }
 
+// MsgHookStart signals a before/after hook is about to execute.
+type MsgHookStart struct {
+	Phase string // "before" or "after"
+	Name  string
+	Index int
+	Total int
+}
+
+// MsgHookDone signals a before/after hook finished executing.
+type MsgHookDone struct {
+	Phase    string // "before" or "after"
+	Name     string
+	Index    int
+	Total    int
+	Duration time.Duration
+	Err      error
+	Skipped  bool
+}
+
 // MsgJobDone signals the entire job is complete.
 type MsgJobDone struct {
 	Err error

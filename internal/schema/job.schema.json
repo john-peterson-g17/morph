@@ -159,6 +159,12 @@
                   "type": "string",
                   "minLength": 1,
                   "description": "SQL statement to execute"
+                },
+                "run": {
+                  "type": "string",
+                  "enum": ["always", "once"],
+                  "default": "once",
+                  "description": "When to run this hook: 'once' (default) skips on resume, 'always' runs every time including resume"
                 }
               }
             }
@@ -215,6 +221,12 @@
                   "type": "string",
                   "minLength": 1,
                   "description": "SQL statement to execute"
+                },
+                "run": {
+                  "type": "string",
+                  "enum": ["always", "once"],
+                  "default": "once",
+                  "description": "When to run this hook: 'once' (default) skips on resume, 'always' runs every time including resume"
                 }
               }
             }

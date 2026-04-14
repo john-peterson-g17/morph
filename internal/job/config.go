@@ -74,6 +74,7 @@ type StepMorph struct {
 type StepSQL struct {
 	SQL  string `yaml:"sql"`
 	Name string `yaml:"name"`
+	Run  string `yaml:"run"`
 }
 
 // ComposeSQL builds the final executable SQL by combining the into statement,

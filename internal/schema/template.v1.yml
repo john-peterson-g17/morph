@@ -34,6 +34,7 @@ steps:
     # before:
     #   - name: drop index
     #     sql: DROP INDEX IF EXISTS my_index
+    #     run: once  # once (default): skip on resume | always: run every time
 
     morph:
       partition_by: created_at
@@ -51,3 +52,4 @@ steps:
     # after:
     #   - name: create index
     #     sql: CREATE INDEX CONCURRENTLY IF NOT EXISTS my_index ON target_table (col1)
+    #     run: once  # once (default): skip on resume | always: run every time
