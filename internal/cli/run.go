@@ -40,6 +40,16 @@ func RunCommand() *cli.Command {
 				Name:  "debug",
 				Usage: "Show executed SQL queries in the output",
 			},
+			&cli.TimestampFlag{
+				Name:   "start",
+				Usage:  "Override window start (e.g. 2024-06-01T00:00:00Z)",
+				Config: cli.TimestampConfig{Layouts: []string{time.RFC3339, "2006-01-02"}},
+			},
+			&cli.TimestampFlag{
+				Name:   "end",
+				Usage:  "Override window end (e.g. 2025-01-01T00:00:00Z)",
+				Config: cli.TimestampConfig{Layouts: []string{time.RFC3339, "2006-01-02"}},
+			},
 		},
 		Action: runBackfill,
 	}
@@ -54,6 +64,13 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	cfg, err := job.Load(jobFile)
 	if err != nil {
 		return fmt.Errorf("loading job: %w", err)
+	}
+
+	if t := cmd.Timestamp("start"); !t.IsZero() {
+		cfg.Partitioning.Window.Start = t
+	}
+	if t := cmd.Timestamp("end"); !t.IsZero() {
+		cfg.Partitioning.Window.End = t
 	}
 
 	progressFile, err := flags.ResolveProgressFile(cmd, cfg.Version)
