@@ -191,6 +191,44 @@ steps:
 	}
 }
 
+func TestValidate_RawMorphSQL(t *testing.T) {
+	data := []byte(`
+steps:
+  - name: raw_step
+    morph:
+      sql: |
+        WITH cte AS (
+          SELECT id FROM source WHERE ts >= $1 AND ts < $2
+        )
+        INSERT INTO target (id)
+        SELECT id FROM cte
+        ON CONFLICT (id) DO NOTHING
+`)
+
+	v := &Validator{}
+	if err := v.Validate(data); err != nil {
+		t.Errorf("expected valid raw morph SQL, got error: %v", err)
+	}
+}
+
+func TestValidate_InvalidRawMorphSQL(t *testing.T) {
+	data := []byte(`
+steps:
+  - name: bad_raw
+    morph:
+      sql: "GIBBERISH something"
+`)
+
+	v := &Validator{}
+	err := v.Validate(data)
+	if err == nil {
+		t.Fatal("expected error for invalid raw morph SQL, got nil")
+	}
+	if !contains(err.Error(), "morph.sql") {
+		t.Errorf("expected error mentioning morph.sql, got: %v", err)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

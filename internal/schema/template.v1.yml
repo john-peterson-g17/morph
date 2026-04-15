@@ -4,7 +4,8 @@ job:
   name: { { .Name } }
   description: ""
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range
@@ -27,7 +28,9 @@ runtime:
     statement_timeout: 1h
 
 progress:
-  path: .morph/{{ .Name }}.progress.json
+  driver: file
+  file:
+    path: .morph/progress/{{ .Name }}.v1.progress.json
 
 steps:
   - name: my_step
@@ -48,6 +51,19 @@ steps:
         sql: |
           INSERT INTO target_table (id, col1, col2, created_at)
           ON CONFLICT (id) DO NOTHING
+
+    # --- OR use raw SQL mode for full control (CTEs, multiple $1/$2 refs, etc.) ---
+    # morph:
+    #   sql: |
+    #     WITH source AS (
+    #       SELECT id, col1, col2, created_at
+    #       FROM source_table
+    #       WHERE created_at >= $1 AND created_at < $2
+    #     )
+    #     INSERT INTO target_table (id, col1, col2, created_at)
+    #     SELECT id, col1, col2, created_at
+    #     FROM source
+    #     ON CONFLICT (id) DO NOTHING
 
     # after:
     #   - name: create index

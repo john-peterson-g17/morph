@@ -1,8 +1,8 @@
 version: v1
 
 job:
-  name: single-step-conflict
-  description: single step backfill with ON CONFLICT clause
+  name: single-step-raw-sql
+  description: single step backfill using raw SQL with CTE
 
 database:
   driver: postgres
@@ -33,13 +33,13 @@ progress:
 steps:
   - name: copy_rows
     morph:
-      partition_by: ts
-
-      from:
-        sql: |
-          SELECT id, name, value, ts FROM morph_test_source
-
-      into:
-        sql: |
-          INSERT INTO morph_test_target (id, name, value, ts)
-          ON CONFLICT (id) DO NOTHING
+      sql: |
+        WITH source_rows AS (
+          SELECT id, name, value, ts
+          FROM morph_test_source
+          WHERE ts >= $1 AND ts < $2
+        )
+        INSERT INTO morph_test_target (id, name, value, ts)
+        SELECT id, name, value, ts
+        FROM source_rows
+        ON CONFLICT (id) DO NOTHING

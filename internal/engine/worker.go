@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/john-peterson-g17/morph/internal/job"
+	"github.com/john-peterson-g17/morph/internal/progress"
 )
 
 // WorkerPool orchestrates concurrent chunk processing for a morph job.
@@ -17,7 +18,7 @@ type WorkerPool struct {
 	concurrency   int
 	db            *sql.DB
 	planner       *ChunkPlanner
-	progress      *ProgressStore
+	progress      progress.Store
 	steps         []job.Step
 	maxRetries    int
 	maxRows       int64
@@ -28,12 +29,12 @@ type WorkerPool struct {
 }
 
 // NewWorkerPool creates a worker pool for chunk-based backfill execution.
-func NewWorkerPool(db *sql.DB, planner *ChunkPlanner, progress *ProgressStore, steps []job.Step, concurrency, maxRetries int, maxRows int64, program *tea.Program) *WorkerPool {
+func NewWorkerPool(db *sql.DB, planner *ChunkPlanner, prog progress.Store, steps []job.Step, concurrency, maxRetries int, maxRows int64, program *tea.Program) *WorkerPool {
 	return &WorkerPool{
 		concurrency: concurrency,
 		db:          db,
 		planner:     planner,
-		progress:    progress,
+		progress:    prog,
 		steps:       steps,
 		maxRetries:  maxRetries,
 		maxRows:     maxRows,
@@ -48,7 +49,7 @@ func (wp *WorkerPool) ResumeFrom(priorRows int64, priorChunks int) {
 	wp.resumedChunks = priorChunks
 }
 func (wp *WorkerPool) Run(ctx context.Context) error {
-	chunks := make(chan ChunkRange, wp.concurrency)
+	chunks := make(chan progress.ChunkRange, wp.concurrency)
 	var wg sync.WaitGroup
 	errCh := make(chan error, wp.concurrency)
 
@@ -106,7 +107,7 @@ func (wp *WorkerPool) Run(ctx context.Context) error {
 	return firstErr
 }
 
-func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk ChunkRange) error {
+func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk progress.ChunkRange) error {
 	chunkStart := time.Now()
 
 	for attempt := 0; attempt <= wp.maxRetries; attempt++ {
@@ -156,7 +157,7 @@ func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk Chun
 	return nil
 }
 
-func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk ChunkRange) (int64, []string, error) {
+func (wp *WorkerPool) executeChunkSteps(ctx context.Context, workerID int, chunk progress.ChunkRange) (int64, []string, error) {
 	var totalRows int64
 	var queries []string
 

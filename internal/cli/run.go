@@ -14,6 +14,10 @@ import (
 	"github.com/john-peterson-g17/morph/internal/job"
 	"github.com/john-peterson-g17/morph/internal/monitor"
 	pgmon "github.com/john-peterson-g17/morph/internal/monitor/postgres"
+	"github.com/john-peterson-g17/morph/internal/progress"
+	progressfile "github.com/john-peterson-g17/morph/internal/progress/file"
+	progresspg "github.com/john-peterson-g17/morph/internal/progress/postgres"
+	progresss3 "github.com/john-peterson-g17/morph/internal/progress/s3"
 	"github.com/john-peterson-g17/morph/internal/tui"
 )
 
@@ -26,6 +30,12 @@ func RunCommand() *cli.Command {
 		Flags: []cli.Flag{
 			flags.JobDirFlag(),
 			flags.ProgressDirFlag(),
+			flags.ProgressDriverFlag(),
+			flags.ProgressSchemaFlag(),
+			flags.ProgressBucketFlag(),
+			flags.ProgressPrefixFlag(),
+			flags.ProgressEndpointFlag(),
+			flags.ProgressRegionFlag(),
 			flags.DSNFlag(),
 			&cli.IntFlag{
 				Name:  "concurrency",
@@ -71,11 +81,6 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 	if t := cmd.Timestamp("end"); !t.IsZero() {
 		cfg.Partitioning.Window.End = t
-	}
-
-	progressFile, err := flags.ResolveProgressFile(cmd, cfg.Version)
-	if err != nil {
-		return err
 	}
 
 	concurrency := int(cmd.Int("concurrency"))
@@ -128,19 +133,71 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("pinging database: %w", err)
 	}
 
-	// Set up progress store.
-	progress, err := engine.LoadProgressStore(progressFile)
-	if err != nil {
-		return fmt.Errorf("loading progress: %w", err)
+	// Resolve progress store driver: CLI flag > config YAML > default "file".
+	progressDriver := cmd.String("progress-driver")
+	if progressDriver == "" {
+		progressDriver = cfg.Progress.Driver
+	}
+	if progressDriver == "" {
+		progressDriver = "file"
 	}
 
-	if cmd.Bool("fresh") && progress.HasData() {
-		if err := progress.Reset(); err != nil {
-			return fmt.Errorf("resetting progress: %w", err)
-		}
-		progress, err = engine.LoadProgressStore(progressFile)
+	// Build progress store directly based on driver.
+	var store progress.Store
+	switch progressDriver {
+	case "file":
+		progressFile, err := flags.ResolveProgressFile(cmd, cfg.Version)
 		if err != nil {
-			return fmt.Errorf("reloading progress: %w", err)
+			return err
+		}
+		path := progressFile
+		if cfg.Progress.File.Path != "" && cmd.String("progress-dir") == "" {
+			path = cfg.Progress.File.Path
+		}
+		store, err = progressfile.New(path)
+		if err != nil {
+			return fmt.Errorf("loading progress: %w", err)
+		}
+	case "postgres":
+		schema := cfg.Progress.Postgres.Schema
+		table := cfg.Progress.Postgres.Table
+		if v := cmd.String("progress-schema"); v != "" {
+			schema = v
+		}
+		var err error
+		store, err = progresspg.New(db, schema, table, cfg.Job.Name, cfg.Version)
+		if err != nil {
+			return fmt.Errorf("loading progress: %w", err)
+		}
+	case "s3":
+		bucket := cfg.Progress.S3.Bucket
+		prefix := cfg.Progress.S3.Prefix
+		region := cfg.Progress.S3.Region
+		endpoint := cfg.Progress.S3.Endpoint
+		if v := cmd.String("progress-bucket"); v != "" {
+			bucket = v
+		}
+		if v := cmd.String("progress-prefix"); v != "" {
+			prefix = v
+		}
+		if v := cmd.String("progress-endpoint"); v != "" {
+			endpoint = v
+		}
+		if v := cmd.String("progress-region"); v != "" {
+			region = v
+		}
+		var err error
+		store, err = progresss3.New(endpoint, bucket, prefix, region, cfg.Job.Name, cfg.Version)
+		if err != nil {
+			return fmt.Errorf("loading progress: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown progress driver: %q", progressDriver)
+	}
+
+	if cmd.Bool("fresh") && store.HasData() {
+		if err := store.Reset(); err != nil {
+			return fmt.Errorf("resetting progress: %w", err)
 		}
 	}
 
@@ -158,15 +215,15 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	isResume := false
 	var resumedChunks int
 	var resumedRows int64
-	if progress.HasData() {
+	if store.HasData() {
 		isResume = true
-		nextStart, lastWidth, completed := progress.GetResumePoint()
+		nextStart, lastWidth, completed := store.GetResumePoint()
 		planner.ResumeFrom(nextStart, lastWidth)
 		resumedChunks = completed
-		resumedRows = progress.TotalRows()
+		resumedRows = store.TotalRows()
 	}
 
-	progress.Init(cfg.Job.Name, cfg.Version, cfg.Partitioning.Window.Start, cfg.Partitioning.Window.End)
+	store.Init(cfg.Job.Name, cfg.Version, cfg.Partitioning.Window.Start, cfg.Partitioning.Window.End)
 
 	// Set up cancellation context for TUI.
 	runCtx, cancel := context.WithCancel(ctx)
@@ -236,14 +293,14 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Start database health monitor.
-	switch cfg.Driver {
+	switch cfg.Database.Driver {
 	case "postgres":
 		mon := pgmon.New(db)
 		if err := mon.Init(runCtx); err == nil {
 			monitor.RunCollector(runCtx, mon, program, 2*time.Second)
 		}
 	default:
-		fmt.Printf("Warning: no monitor available for driver %q, skipping DB health\n", cfg.Driver)
+		fmt.Printf("Warning: no monitor available for driver %q, skipping DB health\n", cfg.Database.Driver)
 	}
 
 	// Build and run worker pool.
@@ -297,7 +354,7 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	pool := engine.NewWorkerPool(db, planner, progress, cfg.Steps, concurrency, maxRetries, maxRows, program)
+	pool := engine.NewWorkerPool(db, planner, store, cfg.Steps, concurrency, maxRetries, maxRows, program)
 	if resumedChunks > 0 {
 		pool.ResumeFrom(resumedRows, resumedChunks)
 	}
@@ -363,7 +420,7 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Print final summary.
-	completedChunks, failedChunks, rowsByStep, avgRuntime := progress.Summary()
+	completedChunks, failedChunks, rowsByStep, avgRuntime := store.Summary()
 	fmt.Println()
 	if poolErr != nil {
 		fmt.Printf("✗ Job failed: %v\n", poolErr)

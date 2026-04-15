@@ -4,7 +4,8 @@ job:
   name: before-after-hooks
   description: test before and after hooks
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

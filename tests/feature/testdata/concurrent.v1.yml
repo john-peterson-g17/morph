@@ -4,7 +4,8 @@ job:
   name: concurrent
   description: concurrent backfill test
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

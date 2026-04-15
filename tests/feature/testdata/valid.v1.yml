@@ -4,7 +4,8 @@ job:
   name: validate-test
   description: validation feature test
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

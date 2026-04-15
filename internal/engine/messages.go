@@ -1,13 +1,17 @@
 package engine
 
-import "time"
+import (
+	"time"
+
+	"github.com/john-peterson-g17/morph/internal/progress"
+)
 
 // Messages sent from the worker pool to the TUI program.
 
 // MsgChunkStart signals a worker started a new chunk.
 type MsgChunkStart struct {
 	WorkerID int
-	Chunk    ChunkRange
+	Chunk    progress.ChunkRange
 }
 
 // MsgStepStart signals a worker started a step within a chunk.
@@ -30,7 +34,7 @@ type MsgStepDone struct {
 // MsgChunkDone signals a chunk completed all steps.
 type MsgChunkDone struct {
 	WorkerID        int
-	Chunk           ChunkRange
+	Chunk           progress.ChunkRange
 	Rows            int64
 	Duration        time.Duration
 	NextWidth       time.Duration
@@ -42,7 +46,7 @@ type MsgChunkDone struct {
 // MsgChunkFailed signals a chunk failed.
 type MsgChunkFailed struct {
 	WorkerID int
-	Chunk    ChunkRange
+	Chunk    progress.ChunkRange
 	Err      error
 	Retrying bool
 }

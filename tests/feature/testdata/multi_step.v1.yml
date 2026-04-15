@@ -4,7 +4,8 @@ job:
   name: multi-step
   description: multi step backfill test
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

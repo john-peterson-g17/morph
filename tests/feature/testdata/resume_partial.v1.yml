@@ -4,7 +4,8 @@ job:
   name: resume-test
   description: resume test - first day only
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

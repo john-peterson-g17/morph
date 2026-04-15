@@ -430,3 +430,68 @@ func TestValidate_InvalidYAML(t *testing.T) {
 		t.Error("expected error for invalid YAML")
 	}
 }
+
+func TestValidate_MorphRawSQL(t *testing.T) {
+	data := []byte(`
+version: v1
+
+job:
+  name: raw-sql-test
+
+database:
+  driver: postgres
+
+partitioning:
+  strategy: time_range
+  window:
+    start: "2025-01-01T00:00:00Z"
+    end: "2025-02-01T00:00:00Z"
+
+steps:
+  - name: s1
+    morph:
+      sql: |
+        WITH cte AS (
+          SELECT id FROM source WHERE ts >= $1 AND ts < $2
+        )
+        INSERT INTO target (id)
+        SELECT id FROM cte
+        ON CONFLICT (id) DO NOTHING
+`)
+	v := &Validator{}
+	if err := v.Validate(data); err != nil {
+		t.Errorf("expected valid raw SQL morph, got error: %v", err)
+	}
+}
+
+func TestValidate_MorphRawSQLRejectsMixed(t *testing.T) {
+	data := []byte(`
+version: v1
+
+job:
+  name: mixed-test
+
+database:
+  driver: postgres
+
+partitioning:
+  strategy: time_range
+  window:
+    start: "2025-01-01T00:00:00Z"
+    end: "2025-02-01T00:00:00Z"
+
+steps:
+  - name: s1
+    morph:
+      sql: INSERT INTO t (id) SELECT id FROM s WHERE ts >= $1 AND ts < $2
+      partition_by: ts
+      from:
+        sql: SELECT id FROM s
+      into:
+        sql: INSERT INTO t (id)
+`)
+	v := &Validator{}
+	if err := v.Validate(data); err == nil {
+		t.Error("expected error when both sql and from/into/partition_by are set")
+	}
+}

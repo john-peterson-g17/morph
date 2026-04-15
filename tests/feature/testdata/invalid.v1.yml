@@ -3,4 +3,5 @@ version: v1
 job:
   name: invalid-test
 
-driver: postgres
+database:
+  driver: postgres

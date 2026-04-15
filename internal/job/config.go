@@ -13,11 +13,15 @@ import (
 type Config struct {
 	Version      string       `yaml:"version"`
 	Job          JobMeta      `yaml:"job"`
-	Driver       string       `yaml:"driver"`
+	Database     Database     `yaml:"database"`
 	Partitioning Partitioning `yaml:"partitioning"`
 	Runtime      Runtime      `yaml:"runtime"`
 	Progress     Progress     `yaml:"progress"`
 	Steps        []Step       `yaml:"steps"`
+}
+
+type Database struct {
+	Driver string `yaml:"driver"`
 }
 
 type JobMeta struct {
@@ -55,7 +59,26 @@ type RuntimeDefaults struct {
 }
 
 type Progress struct {
+	Driver   string       `yaml:"driver"`
+	File     FileProgress `yaml:"file"`
+	Postgres PGProgress   `yaml:"postgres"`
+	S3       S3Progress   `yaml:"s3"`
+}
+
+type FileProgress struct {
 	Path string `yaml:"path"`
+}
+
+type PGProgress struct {
+	Schema string `yaml:"schema"`
+	Table  string `yaml:"table"`
+}
+
+type S3Progress struct {
+	Bucket   string `yaml:"bucket"`
+	Prefix   string `yaml:"prefix"`
+	Region   string `yaml:"region"`
+	Endpoint string `yaml:"endpoint"`
 }
 
 type Step struct {
@@ -66,6 +89,7 @@ type Step struct {
 }
 
 type StepMorph struct {
+	SQL         string  `yaml:"sql"`
 	PartitionBy string  `yaml:"partition_by"`
 	From        StepSQL `yaml:"from"`
 	Into        StepSQL `yaml:"into"`
@@ -77,9 +101,16 @@ type StepSQL struct {
 	Run  string `yaml:"run"`
 }
 
-// ComposeSQL builds the final executable SQL by combining the into statement,
-// from query, and a WHERE clause derived from partition_by.
+// ComposeSQL builds the final executable SQL for a step.
+//
+// When morph.sql is set, it is returned verbatim — the user is responsible for
+// placing $1/$2 partition boundary placeholders. Otherwise the into, from, and
+// a generated WHERE clause are combined automatically.
 func (s Step) ComposeSQL() string {
+	if raw := strings.TrimSpace(s.Morph.SQL); raw != "" {
+		return raw
+	}
+
 	fromSQL := strings.TrimSpace(s.Morph.From.SQL)
 	intoSQL := strings.TrimSpace(s.Morph.Into.SQL)
 	partitionBy := s.Morph.PartitionBy
@@ -135,8 +166,8 @@ func (c *Config) Validate() error {
 	if c.Job.Name == "" {
 		return fmt.Errorf("job.name is required")
 	}
-	if c.Driver == "" {
-		return fmt.Errorf("driver is required")
+	if c.Database.Driver == "" {
+		return fmt.Errorf("database.driver is required")
 	}
 	if c.Partitioning.Window.Start.IsZero() || c.Partitioning.Window.End.IsZero() {
 		return fmt.Errorf("partitioning.window.start and partitioning.window.end are required")
@@ -150,6 +181,15 @@ func (c *Config) Validate() error {
 	for i, s := range c.Steps {
 		if s.Name == "" {
 			return fmt.Errorf("steps[%d].name is required", i)
+		}
+		hasRawSQL := strings.TrimSpace(s.Morph.SQL) != ""
+		hasComposed := s.Morph.PartitionBy != "" || s.Morph.From.SQL != "" || s.Morph.Into.SQL != ""
+
+		if hasRawSQL && hasComposed {
+			return fmt.Errorf("steps[%d].morph: sql is mutually exclusive with partition_by/from/into", i)
+		}
+		if hasRawSQL {
+			continue
 		}
 		if s.Morph.PartitionBy == "" {
 			return fmt.Errorf("steps[%d].morph.partition_by is required", i)

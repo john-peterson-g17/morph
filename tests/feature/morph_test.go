@@ -78,6 +78,31 @@ func TestSingleStepBackfillWithConflictClause(t *testing.T) {
 	}
 }
 
+func TestSingleStepRawSQLBackfill(t *testing.T) {
+	db := openTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	setupSchema(t, db)
+	defer cleanup(t, db)
+
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC)
+	seedRows(t, db, 60, start, end)
+
+	progressDir := t.TempDir()
+	out, err := runMorph(t,
+		[]string{"run", testdataFile("single_step_raw_sql.v1.yml"), "--progress-dir", progressDir},
+		"DATABASE_URL="+testDSN(),
+	)
+	if err != nil {
+		t.Fatalf("morph run failed: %v\noutput: %s", err, out)
+	}
+
+	if got := tableCount(t, db, "morph_test_target"); got != 60 {
+		t.Errorf("expected 60 rows in target, got %d", got)
+	}
+}
+
 func TestMultiStepBackfill(t *testing.T) {
 	db := openTestDB(t)
 	defer func() { _ = db.Close() }()

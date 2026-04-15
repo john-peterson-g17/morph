@@ -42,6 +42,60 @@ func DSNFlag() *cli.StringFlag {
 	}
 }
 
+// ProgressDriverFlag returns the --progress-driver flag for selecting the progress store backend.
+func ProgressDriverFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "progress-driver",
+		Usage:   "Progress store driver: file, postgres, s3",
+		Sources: cli.EnvVars("PROGRESS_DRIVER"),
+	}
+}
+
+// ProgressSchemaFlag returns the --progress-schema flag for the Postgres progress store.
+func ProgressSchemaFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "progress-schema",
+		Usage:   "PostgreSQL schema for progress tables (default: morph)",
+		Sources: cli.EnvVars("PROGRESS_SCHEMA"),
+	}
+}
+
+// ProgressBucketFlag returns the --progress-bucket flag for the S3 progress store.
+func ProgressBucketFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "progress-bucket",
+		Usage:   "S3 bucket for progress files",
+		Sources: cli.EnvVars("PROGRESS_BUCKET"),
+	}
+}
+
+// ProgressPrefixFlag returns the --progress-prefix flag for the S3 progress store.
+func ProgressPrefixFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "progress-prefix",
+		Usage:   "S3 key prefix for progress files",
+		Sources: cli.EnvVars("PROGRESS_PREFIX"),
+	}
+}
+
+// ProgressEndpointFlag returns the --progress-endpoint flag for the S3 progress store.
+func ProgressEndpointFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "progress-endpoint",
+		Usage:   "Custom S3 endpoint (for MinIO, R2, etc.)",
+		Sources: cli.EnvVars("PROGRESS_ENDPOINT"),
+	}
+}
+
+// ProgressRegionFlag returns the --progress-region flag for the S3 progress store.
+func ProgressRegionFlag() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:    "progress-region",
+		Usage:   "AWS region for S3 progress store",
+		Sources: cli.EnvVars("PROGRESS_REGION"),
+	}
+}
+
 // ResolveDSN returns the database connection string from the --dsn flag
 // (which also reads from the DATABASE_URL env var).
 func ResolveDSN(cmd *cli.Command) (string, error) {

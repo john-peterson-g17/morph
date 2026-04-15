@@ -4,7 +4,8 @@ job:
   name: events-backfill
   description: Backfill CQRS tables from events and attempts
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

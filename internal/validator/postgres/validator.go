@@ -18,6 +18,7 @@ type jobFile struct {
 			SQL  string `yaml:"sql"`
 		} `yaml:"before"`
 		Morph struct {
+			SQL  string `yaml:"sql"`
 			From struct {
 				SQL string `yaml:"sql"`
 			} `yaml:"from"`
@@ -47,6 +48,11 @@ func (v *Validator) Validate(data []byte) error {
 			}
 			if err := validateSQL(hook.SQL); err != nil {
 				errs = append(errs, fmt.Sprintf("step %q %s: %s", step.Name, label, err))
+			}
+		}
+		if step.Morph.SQL != "" {
+			if err := validateSQL(step.Morph.SQL); err != nil {
+				errs = append(errs, fmt.Sprintf("step %q morph.sql: %s", step.Name, err))
 			}
 		}
 		if step.Morph.From.SQL != "" {

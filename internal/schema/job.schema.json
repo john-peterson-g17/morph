@@ -3,7 +3,7 @@
   "title": "Morph Job",
   "description": "Schema for morph backfill job configuration files",
   "type": "object",
-  "required": ["version", "job", "driver", "partitioning", "steps"],
+  "required": ["version", "job", "database", "partitioning", "steps"],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -27,10 +27,17 @@
         }
       }
     },
-    "driver": {
-      "type": "string",
-      "enum": ["postgres"],
-      "description": "Database driver"
+    "database": {
+      "type": "object",
+      "required": ["driver"],
+      "additionalProperties": false,
+      "properties": {
+        "driver": {
+          "type": "string",
+          "enum": ["postgres"],
+          "description": "Database driver"
+        }
+      }
     },
     "partitioning": {
       "type": "object",
@@ -123,9 +130,56 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "path": {
+        "driver": {
           "type": "string",
-          "description": "Path to the progress tracking file"
+          "enum": ["file", "postgres", "s3"],
+          "description": "Progress store driver (default: file)"
+        },
+        "file": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path to the progress tracking file"
+            }
+          }
+        },
+        "postgres": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "type": "string",
+              "description": "PostgreSQL schema for progress tables (default: morph)"
+            },
+            "table": {
+              "type": "string",
+              "description": "PostgreSQL table name for progress (default: progress)"
+            }
+          }
+        },
+        "s3": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bucket": {
+              "type": "string",
+              "description": "S3 bucket name"
+            },
+            "prefix": {
+              "type": "string",
+              "description": "S3 key prefix for progress files"
+            },
+            "region": {
+              "type": "string",
+              "description": "AWS region"
+            },
+            "endpoint": {
+              "type": "string",
+              "description": "Custom S3 endpoint (for MinIO, R2, etc.)"
+            }
+          }
         }
       }
     },
@@ -171,39 +225,52 @@
           },
           "morph": {
             "type": "object",
-            "required": ["partition_by", "from", "into"],
-            "additionalProperties": false,
-            "properties": {
-              "partition_by": {
-                "type": "string",
-                "minLength": 1,
-                "description": "Column used for time-range partitioning"
-              },
-              "from": {
-                "type": "object",
-                "required": ["sql"],
-                "additionalProperties": false,
+            "oneOf": [
+              {
+                "required": ["partition_by", "from", "into"],
                 "properties": {
-                  "sql": {
+                  "partition_by": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "SELECT query to read source data"
+                    "description": "Column used for time-range partitioning"
+                  },
+                  "from": {
+                    "type": "object",
+                    "required": ["sql"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "sql": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "SELECT query to read source data"
+                      }
+                    }
+                  },
+                  "into": {
+                    "type": "object",
+                    "required": ["sql"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "sql": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "INSERT statement with optional ON CONFLICT clause"
+                      }
+                    }
                   }
                 }
               },
-              "into": {
-                "type": "object",
+              {
                 "required": ["sql"],
-                "additionalProperties": false,
                 "properties": {
                   "sql": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "INSERT statement with optional ON CONFLICT clause"
+                    "description": "Complete SQL statement with $1/$2 for partition start/end boundaries"
                   }
                 }
               }
-            }
+            ]
           },
           "after": {
             "type": "array",

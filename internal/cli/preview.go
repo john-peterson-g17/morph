@@ -77,7 +77,7 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 	if cfg.Job.Description != "" {
 		fmt.Printf("  Description:    %s\n", cfg.Job.Description)
 	}
-	fmt.Printf("  Driver:         %s\n", cfg.Driver)
+	fmt.Printf("  Driver:         %s\n", cfg.Database.Driver)
 	fmt.Println()
 
 	// Partitioning.
@@ -128,7 +128,9 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 			}
 		}
 
-		fmt.Printf("      Partition by: %s\n", step.Morph.PartitionBy)
+		if step.Morph.PartitionBy != "" {
+			fmt.Printf("      Partition by: %s\n", step.Morph.PartitionBy)
+		}
 		fmt.Printf("      Query:\n")
 		composed := step.ComposeSQL()
 		for _, line := range strings.Split(composed, "\n") {
@@ -151,12 +153,12 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 	// Row estimate — only if DB is reachable.
 	dsn, _ := flags.ResolveDSN(cmd)
 	if dsn != "" {
-		db, err := sql.Open(cfg.Driver, dsn)
+		db, err := sql.Open(cfg.Database.Driver, dsn)
 		if err == nil {
 			defer func() { _ = db.Close() }()
 			if db.PingContext(ctx) == nil {
 				var p previewer.Previewer
-				switch cfg.Driver {
+				switch cfg.Database.Driver {
 				case "postgres":
 					p = pgprev.New(db)
 				}

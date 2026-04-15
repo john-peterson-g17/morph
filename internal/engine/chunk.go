@@ -3,13 +3,9 @@ package engine
 import (
 	"sync"
 	"time"
-)
 
-// ChunkRange represents a time-bounded chunk of work.
-type ChunkRange struct {
-	Start time.Time
-	End   time.Time
-}
+	"github.com/john-peterson-g17/morph/internal/progress"
+)
 
 // ChunkPlanner generates date-based chunks progressively with adaptive sizing.
 type ChunkPlanner struct {
@@ -44,12 +40,12 @@ func NewChunkPlanner(loadStart, loadEnd time.Time, initialWidth, targetRuntime, 
 }
 
 // NextChunk returns the next time range to process. Returns false when done.
-func (p *ChunkPlanner) NextChunk() (ChunkRange, bool) {
+func (p *ChunkPlanner) NextChunk() (progress.ChunkRange, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if !p.nextStart.Before(p.loadEnd) {
-		return ChunkRange{}, false
+		return progress.ChunkRange{}, false
 	}
 
 	start := p.nextStart
@@ -59,7 +55,7 @@ func (p *ChunkPlanner) NextChunk() (ChunkRange, bool) {
 	}
 
 	p.nextStart = end
-	return ChunkRange{Start: start, End: end}, true
+	return progress.ChunkRange{Start: start, End: end}, true
 }
 
 // RecordResult adjusts the adaptive chunk width based on observed runtime.

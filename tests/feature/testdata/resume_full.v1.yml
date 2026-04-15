@@ -4,7 +4,8 @@ job:
   name: resume-test
   description: resume test - full window
 
-driver: postgres
+database:
+  driver: postgres
 
 partitioning:
   strategy: time_range

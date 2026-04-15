@@ -26,9 +26,11 @@ func ValidateCommand() *cli.Command {
 	}
 }
 
-// driverHeader is used to extract the driver from the job file.
-type driverHeader struct {
-	Driver string `yaml:"driver"`
+// databaseHeader is used to extract the database driver from the job file.
+type databaseHeader struct {
+	Database struct {
+		Driver string `yaml:"driver"`
+	} `yaml:"database"`
 }
 
 func runValidate(ctx context.Context, cmd *cli.Command) error {
@@ -48,9 +50,9 @@ func runValidate(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Add driver-specific validators
-	var hdr driverHeader
+	var hdr databaseHeader
 	if err := yaml.Unmarshal(data, &hdr); err == nil {
-		driver := hdr.Driver
+		driver := hdr.Database.Driver
 		if driver == "" {
 			driver = "postgres"
 		}
