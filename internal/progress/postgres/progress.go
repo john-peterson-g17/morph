@@ -196,6 +196,16 @@ func (s *Store) IsChunkComplete(c progress.ChunkRange) bool {
 	return status == "complete"
 }
 
+func (s *Store) IsChunkFailed(c progress.ChunkRange) bool {
+	query := fmt.Sprintf(`SELECT status FROM %s
+		WHERE job_name = $1 AND job_version = $2 AND chunk_start = $3 AND chunk_end = $4`, s.table)
+	var status string
+	if err := s.db.QueryRow(query, s.jobName, s.jobVersion, c.Start, c.End).Scan(&status); err != nil {
+		return false
+	}
+	return status == "failed"
+}
+
 func (s *Store) GetResumePoint() (nextStart time.Time, lastWidth time.Duration, completedCount int) {
 	var loadStart time.Time
 	var lastChunkWidth int64

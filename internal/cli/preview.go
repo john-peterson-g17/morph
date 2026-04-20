@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	_ "github.com/lib/pq"
 	"github.com/urfave/cli/v3"
 
@@ -14,6 +15,28 @@ import (
 	"github.com/john-peterson-g17/morph/internal/job"
 	"github.com/john-peterson-g17/morph/internal/previewer"
 	pgprev "github.com/john-peterson-g17/morph/internal/previewer/postgres"
+)
+
+// ── Preview styles (matching run TUI palette) ─────────────────────────────
+
+var (
+	pvMuted  = lipgloss.Color("#4a5280")
+	pvBody   = lipgloss.Color("#b8c4d8")
+	pvCyan   = lipgloss.Color("#00d4ff")
+	pvPurple = lipgloss.Color("#8b5cf6")
+	pvAmber  = lipgloss.Color("#e0af68")
+	pvRed    = lipgloss.Color("#f87171")
+	pvGreen  = lipgloss.Color("#4ade80")
+
+	pvBold    = lipgloss.NewStyle().Bold(true).Foreground(pvBody)
+	pvDim     = lipgloss.NewStyle().Foreground(pvMuted)
+	pvBodySt  = lipgloss.NewStyle().Foreground(pvBody)
+	pvCyanSt  = lipgloss.NewStyle().Foreground(pvCyan)
+	pvPurpSt  = lipgloss.NewStyle().Foreground(pvPurple)
+	pvAmberSt = lipgloss.NewStyle().Foreground(pvAmber)
+	pvRedSt   = lipgloss.NewStyle().Foreground(pvRed)
+	pvGreenSt = lipgloss.NewStyle().Foreground(pvGreen)
+	pvSection = lipgloss.NewStyle().Bold(true).Foreground(pvBody)
 )
 
 // PreviewCommand returns the preview CLI command.
@@ -70,87 +93,105 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 		estimatedChunks = 1
 	}
 
-	// Header.
-	fmt.Println("Preview")
-	fmt.Println(strings.Repeat("─", 60))
-	fmt.Printf("  Job:            %s\n", cfg.Job.Name)
-	if cfg.Job.Description != "" {
-		fmt.Printf("  Description:    %s\n", cfg.Job.Description)
+	var b strings.Builder
+	width := 80
+
+	divider := pvDim.Render(strings.Repeat("─", width))
+	sep := pvDim.Render("  │  ")
+
+	// ── Header (matching run TUI) ───────────────────────────────────
+	bolt := pvCyanSt.Bold(true).Render("⚡")
+	brand := pvCyanSt.Bold(true).Render("morph preview")
+
+	var parts []string
+	parts = append(parts, bolt+" "+brand)
+	parts = append(parts, pvBold.Render(cfg.Job.Name))
+	if cfg.Version != "" {
+		parts = append(parts, pvPurpSt.Render(cfg.Version))
 	}
-	fmt.Printf("  Driver:         %s\n", cfg.Database.Driver)
-	fmt.Println()
+	parts = append(parts, pvDim.Render("driver ")+pvBodySt.Render(cfg.Database.Driver))
 
-	// Partitioning.
-	fmt.Println("Partitioning")
-	fmt.Println(strings.Repeat("─", 60))
-	fmt.Printf("  Strategy:       %s\n", cfg.Partitioning.Strategy)
-	fmt.Printf("  Window:         %s → %s\n",
-		cfg.Partitioning.Window.Start.Format("2006-01-02 15:04"),
-		cfg.Partitioning.Window.End.Format("2006-01-02 15:04"))
-	fmt.Printf("  Window Span:    %s\n", engine.FormatDuration(totalWindow))
-	fmt.Printf("  Initial Width:  %s\n", engine.FormatDuration(initialWidth))
-	fmt.Printf("  Min Width:      %s\n", engine.FormatDuration(minWidth))
-	fmt.Printf("  Max Width:      %s\n", engine.FormatDuration(maxWidth))
-	fmt.Printf("  Target Runtime: %s\n", engine.FormatDuration(targetRuntime))
-	fmt.Printf("  Est. Chunks:    ~%s (at initial width)\n", engine.FormatRows(int64(estimatedChunks)))
-	fmt.Println()
+	b.WriteString("\n")
+	b.WriteString(strings.Join(parts, sep))
+	b.WriteString("\n")
+	if cfg.Job.Description != "" {
+		b.WriteString(pvDim.Render("  "+cfg.Job.Description) + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(divider + "\n")
 
-	// Runtime.
-	fmt.Println("Runtime")
-	fmt.Println(strings.Repeat("─", 60))
-	fmt.Printf("  Concurrency:    %d workers\n", concurrency)
-	fmt.Printf("  Max Retries:    %d\n", cfg.Runtime.Defaults.MaxRetries)
+	// ── Partitioning ────────────────────────────────────────────────
+	b.WriteString(pvSection.Render("PARTITIONING") + "\n\n")
+	pvRow(&b, "Strategy", cfg.Partitioning.Strategy)
+	pvRow(&b, "Window", fmt.Sprintf("%s → %s",
+		pvPurpSt.Render(cfg.Partitioning.Window.Start.Format("2006-01-02 15:04")),
+		pvPurpSt.Render(cfg.Partitioning.Window.End.Format("2006-01-02 15:04"))))
+	pvRow(&b, "Span", engine.FormatDuration(totalWindow))
+	pvRow(&b, "Initial Width", engine.FormatDuration(initialWidth))
+	pvRow(&b, "Min / Max", engine.FormatDuration(minWidth)+" / "+engine.FormatDuration(maxWidth))
+	pvRow(&b, "Target Runtime", engine.FormatDuration(targetRuntime))
+	pvRow(&b, "Est. Chunks", "~"+engine.FormatRows(int64(estimatedChunks)))
+	b.WriteString("\n" + divider + "\n")
+
+	// ── Runtime ─────────────────────────────────────────────────────
+	b.WriteString(pvSection.Render("RUNTIME") + "\n\n")
+	pvRow(&b, "Concurrency", fmt.Sprintf("%d workers", concurrency))
+	pvRow(&b, "Max Retries", fmt.Sprintf("%d", cfg.Runtime.Defaults.MaxRetries))
 	if cfg.Runtime.Defaults.MaxRows > 0 {
-		fmt.Printf("  Max Rows:       %s\n", engine.FormatRows(int64(cfg.Runtime.Defaults.MaxRows)))
+		pvRow(&b, "Max Rows", engine.FormatRows(int64(cfg.Runtime.Defaults.MaxRows)))
 	} else {
-		fmt.Printf("  Max Rows:       unlimited\n")
+		pvRow(&b, "Max Rows", pvDim.Render("unlimited"))
 	}
 	if cfg.Runtime.Defaults.StatementTimeout != "" {
-		fmt.Printf("  Stmt Timeout:   %s\n", cfg.Runtime.Defaults.StatementTimeout)
+		pvRow(&b, "Stmt Timeout", cfg.Runtime.Defaults.StatementTimeout)
 	}
-	fmt.Println()
+	b.WriteString("\n" + divider + "\n")
 
-	// Steps.
-	fmt.Printf("Steps (%d)\n", len(cfg.Steps))
-	fmt.Println(strings.Repeat("─", 60))
+	// ── Steps ───────────────────────────────────────────────────────
+	b.WriteString(pvSection.Render(fmt.Sprintf("STEPS  %s", pvDim.Render(fmt.Sprintf("%d total", len(cfg.Steps))))) + "\n")
+
 	for i, step := range cfg.Steps {
-		fmt.Printf("\n  [%d] %s\n", i+1, step.Name)
+		b.WriteString("\n")
+		b.WriteString("  " + pvCyanSt.Bold(true).Render(fmt.Sprintf("[%d]", i+1)) + "  " + pvBold.Render(step.Name) + "\n")
 
 		if len(step.Before) > 0 {
-			fmt.Printf("      Before hooks (%d):\n", len(step.Before))
+			b.WriteString("      " + pvAmberSt.Render(fmt.Sprintf("before hooks (%d)", len(step.Before))) + "\n")
 			for _, hook := range step.Before {
 				label := hook.Name
 				if label == "" {
 					label = "(unnamed)"
 				}
-				fmt.Printf("        • %s\n", label)
-				fmt.Printf("          %s\n", oneline(hook.SQL))
+				b.WriteString("        " + pvDim.Render("•") + " " + pvBodySt.Render(label) + "\n")
+				b.WriteString("          " + pvDim.Render(oneline(hook.SQL)) + "\n")
 			}
 		}
 
 		if step.Morph.PartitionBy != "" {
-			fmt.Printf("      Partition by: %s\n", step.Morph.PartitionBy)
+			b.WriteString("      " + pvDim.Render("partition by: ") + pvBodySt.Render(step.Morph.PartitionBy) + "\n")
 		}
-		fmt.Printf("      Query:\n")
+
+		b.WriteString("      " + pvDim.Render("query:") + "\n")
 		composed := step.ComposeSQL()
 		for _, line := range strings.Split(composed, "\n") {
-			fmt.Printf("        %s\n", line)
+			b.WriteString("        " + pvDim.Render(line) + "\n")
 		}
 
 		if len(step.After) > 0 {
-			fmt.Printf("      After hooks (%d):\n", len(step.After))
+			b.WriteString("      " + pvGreenSt.Render(fmt.Sprintf("after hooks (%d)", len(step.After))) + "\n")
 			for _, hook := range step.After {
 				label := hook.Name
 				if label == "" {
 					label = "(unnamed)"
 				}
-				fmt.Printf("        • %s\n", label)
-				fmt.Printf("          %s\n", oneline(hook.SQL))
+				b.WriteString("        " + pvDim.Render("•") + " " + pvBodySt.Render(label) + "\n")
+				b.WriteString("          " + pvDim.Render(oneline(hook.SQL)) + "\n")
 			}
 		}
 	}
 
-	// Row estimate — only if DB is reachable.
+	b.WriteString("\n" + divider + "\n")
+
+	// ── EXPLAIN & Row Estimates (postgres only, requires DSN) ───────
 	dsn, _ := flags.ResolveDSN(cmd)
 	if dsn != "" {
 		db, err := sql.Open(cfg.Database.Driver, dsn)
@@ -170,30 +211,68 @@ func runPreview(ctx context.Context, cmd *cli.Command) error {
 							SQL:  step.ComposeSQL(),
 						}
 					}
+
+					// Row estimates (full window).
 					estimates := p.EstimateRows(ctx, steps,
 						cfg.Partitioning.Window.Start,
 						cfg.Partitioning.Window.End,
 					)
 
-					fmt.Println()
-					fmt.Println("Row Estimates (via EXPLAIN)")
-					fmt.Println(strings.Repeat("─", 60))
+					b.WriteString(pvSection.Render("ROW ESTIMATES") + pvDim.Render("  full window via EXPLAIN") + "\n\n")
 					for _, est := range estimates {
 						if est.Err != nil {
-							fmt.Printf("  %-20s  error: %v\n", est.StepName, est.Err)
+							b.WriteString("  " + pvRedSt.Render("✗") + "  " + pvBodySt.Render(est.StepName) + "  " + pvRedSt.Render(est.Err.Error()) + "\n")
 						} else if est.Rows > 0 {
-							fmt.Printf("  %-20s  ~%s rows (estimated)\n", est.StepName, engine.FormatRows(est.Rows))
+							b.WriteString("  " + pvGreenSt.Render("✓") + "  " + pvBodySt.Render(est.StepName) + "  ~" + pvCyanSt.Render(engine.FormatRows(est.Rows)) + pvDim.Render(" rows (estimated)") + "\n")
 						} else {
-							fmt.Printf("  %-20s  unable to estimate\n", est.StepName)
+							b.WriteString("  " + pvAmberSt.Render("?") + "  " + pvBodySt.Render(est.StepName) + "  " + pvDim.Render("unable to estimate") + "\n")
+						}
+					}
+					b.WriteString("\n" + divider + "\n")
+
+					// EXPLAIN a sample chunk (one initialWidth from window start).
+					// This shows the plan the planner will actually choose at runtime.
+					sampleEnd := cfg.Partitioning.Window.Start.Add(initialWidth)
+					if sampleEnd.After(cfg.Partitioning.Window.End) {
+						sampleEnd = cfg.Partitioning.Window.End
+					}
+
+					explains := p.ExplainQuery(ctx, steps,
+						cfg.Partitioning.Window.Start,
+						sampleEnd,
+					)
+
+					b.WriteString(pvSection.Render("QUERY PLAN") + pvDim.Render(fmt.Sprintf("  sample chunk %s → %s",
+						cfg.Partitioning.Window.Start.Format("2006-01-02 15:04"),
+						sampleEnd.Format("2006-01-02 15:04"))) + "\n")
+					for _, ex := range explains {
+						b.WriteString("\n  " + pvCyanSt.Bold(true).Render(ex.StepName) + "\n")
+						if ex.Err != nil {
+							b.WriteString("  " + pvRedSt.Render(ex.Err.Error()) + "\n")
+						} else {
+							for _, line := range ex.Lines {
+								b.WriteString("  " + pvDim.Render(line) + "\n")
+							}
 						}
 					}
 				}
+			} else {
+				b.WriteString(pvAmberSt.Render("  ⚠ Could not connect to database — skipping EXPLAIN") + "\n")
 			}
 		}
+	} else {
+		b.WriteString(pvDim.Render("  Provide --dsn to see EXPLAIN output and row estimates") + "\n")
 	}
 
-	fmt.Println()
+	b.WriteString("\n")
+
+	fmt.Print(b.String())
 	return nil
+}
+
+func pvRow(b *strings.Builder, label, value string) {
+	padded := fmt.Sprintf("%-16s", label)
+	b.WriteString("  " + pvDim.Render(padded) + "  " + pvBodySt.Render(value) + "\n")
 }
 
 func oneline(s string) string {

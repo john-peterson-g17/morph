@@ -50,6 +50,10 @@ func RunCommand() *cli.Command {
 				Name:  "debug",
 				Usage: "Show executed SQL queries in the output",
 			},
+			&cli.BoolFlag{
+				Name:  "skip-failed",
+				Usage: "Skip previously failed chunks on resume instead of retrying them",
+			},
 			&cli.TimestampFlag{
 				Name:   "start",
 				Usage:  "Override window start (e.g. 2024-06-01T00:00:00Z)",
@@ -201,6 +205,26 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	// Detect already-completed job and prompt user.
+	if store.HasData() && !cmd.Bool("fresh") {
+		nextStart, _, _ := store.GetResumePoint()
+		if !nextStart.Before(cfg.Partitioning.Window.End) {
+			fmt.Println("This job has already been completed.")
+			fmt.Print("Would you like to delete progress and start fresh? [y/N] ")
+			var answer string
+			_, _ = fmt.Scanln(&answer)
+			if answer == "y" || answer == "Y" || answer == "yes" || answer == "Yes" {
+				if err := store.Reset(); err != nil {
+					return fmt.Errorf("resetting progress: %w", err)
+				}
+				fmt.Println("Progress cleared. Starting fresh...")
+			} else {
+				fmt.Println("Exiting. Use --fresh to skip this prompt.")
+				return nil
+			}
+		}
+	}
+
 	// Set up chunk planner.
 	planner := engine.NewChunkPlanner(
 		cfg.Partitioning.Window.Start,
@@ -273,20 +297,24 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 		widthLabel += " adaptive"
 	}
 
+	// Compute initial estimated total chunks for the TUI progress bar.
+	initialEstimate := resumedChunks + planner.EstimatedTotalChunks(0)
+
 	// Start TUI.
 	debug := cmd.Bool("debug")
 	program, err := tui.Run(tui.RunOpts{
-		JobName:       cfg.Job.Name,
-		Version:       cfg.Version,
-		Concurrency:   concurrency,
-		WidthLabel:    widthLabel,
-		StepName:      joinStepNames(cfg),
-		BeforeTotal:   len(beforeHooks),
-		AfterTotal:    len(afterHooks),
-		ResumedChunks: resumedChunks,
-		ResumedRows:   resumedRows,
-		Cancel:        cancel,
-		Debug:         debug,
+		JobName:         cfg.Job.Name,
+		Version:         cfg.Version,
+		Concurrency:     concurrency,
+		WidthLabel:      widthLabel,
+		StepName:        joinStepNames(cfg),
+		BeforeTotal:     len(beforeHooks),
+		AfterTotal:      len(afterHooks),
+		ResumedChunks:   resumedChunks,
+		ResumedRows:     resumedRows,
+		EstimatedChunks: initialEstimate,
+		Cancel:          cancel,
+		Debug:           debug,
 	})
 	if err != nil {
 		return fmt.Errorf("starting TUI: %w", err)
@@ -354,7 +382,7 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	pool := engine.NewWorkerPool(db, planner, store, cfg.Steps, concurrency, maxRetries, maxRows, program)
+	pool := engine.NewWorkerPool(db, planner, store, cfg.Steps, concurrency, maxRetries, maxRows, program, cmd.Bool("skip-failed"))
 	if resumedChunks > 0 {
 		pool.ResumeFrom(resumedRows, resumedChunks)
 	}

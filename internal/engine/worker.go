@@ -24,12 +24,13 @@ type WorkerPool struct {
 	maxRows       int64
 	program       *tea.Program
 	resumedChunks int
+	skipFailed    bool
 
 	totalRows atomic.Int64
 }
 
 // NewWorkerPool creates a worker pool for chunk-based backfill execution.
-func NewWorkerPool(db *sql.DB, planner *ChunkPlanner, prog progress.Store, steps []job.Step, concurrency, maxRetries int, maxRows int64, program *tea.Program) *WorkerPool {
+func NewWorkerPool(db *sql.DB, planner *ChunkPlanner, prog progress.Store, steps []job.Step, concurrency, maxRetries int, maxRows int64, program *tea.Program, skipFailed bool) *WorkerPool {
 	return &WorkerPool{
 		concurrency: concurrency,
 		db:          db,
@@ -39,6 +40,7 @@ func NewWorkerPool(db *sql.DB, planner *ChunkPlanner, prog progress.Store, steps
 		maxRetries:  maxRetries,
 		maxRows:     maxRows,
 		program:     program,
+		skipFailed:  skipFailed,
 	}
 }
 
@@ -85,6 +87,9 @@ func (wp *WorkerPool) Run(ctx context.Context) error {
 				return
 			}
 			if wp.progress.IsChunkComplete(chunk) {
+				continue
+			}
+			if wp.skipFailed && wp.progress.IsChunkFailed(chunk) {
 				continue
 			}
 			select {
@@ -136,7 +141,7 @@ func (wp *WorkerPool) processChunk(ctx context.Context, workerID int, chunk prog
 				Duration:        chunkDuration,
 				NextWidth:       currentWidth,
 				TotalLoaded:     wp.totalRows.Load(),
-				EstimatedChunks: wp.planner.EstimatedTotalChunks(wp.resumedChunks),
+				EstimatedChunks: wp.planner.EstimatedTotalChunks(0),
 				Queries:         queries,
 			})
 			return nil

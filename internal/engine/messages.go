@@ -39,7 +39,7 @@ type MsgChunkDone struct {
 	Duration        time.Duration
 	NextWidth       time.Duration
 	TotalLoaded     int64
-	EstimatedChunks int
+	EstimatedChunks int // estimated remaining chunks (not including completed)
 	Queries         []string
 }
 

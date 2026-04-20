@@ -71,6 +71,9 @@ type Model struct {
 	// Completed chunks table.
 	completed []completedChunk
 
+	// Failed chunks table.
+	failed []failedChunk
+
 	// Legacy log (debug queries).
 	recentLog []logEntry
 
@@ -87,9 +90,10 @@ type Model struct {
 	termHeight int
 
 	// Hook progress state.
-	hookPhase     string // "before", "after", or ""
-	hookCurrent   string
-	hookStarted   time.Time
+	hookPhase        string // "before", "after", or ""
+	hookCurrent      string
+	hookCurrentStart time.Time
+	hookStarted      time.Time
 	hookLog       []hookEntry
 	hookTotal     int
 	hookDone      int
@@ -148,10 +152,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.phase = phaseMorph
 		if idx := msg.WorkerID - 1; idx >= 0 && idx < len(m.workers) {
 			m.workers[idx] = workerDisplay{
-				id:      msg.WorkerID,
-				chunk:   &msg.Chunk,
-				started: time.Now(),
-				idle:    false,
+				id:       msg.WorkerID,
+				chunk:    &msg.Chunk,
+				started:  time.Now(),
+				idle:     false,
+				retrying: m.workers[idx].retrying,
 			}
 		}
 
@@ -170,6 +175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workers[idx].chunk = nil
 			m.workers[idx].step = ""
 			m.workers[idx].liveRows = 0
+			m.workers[idx].retrying = false
 		}
 		m.totalLoaded = msg.TotalLoaded
 		m.nextWidth = msg.NextWidth
@@ -206,6 +212,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case engine.MsgChunkFailed:
 		m.chunksFailed++
+		if idx := msg.WorkerID - 1; idx >= 0 && idx < len(m.workers) && msg.Retrying {
+			m.workers[idx].retrying = true
+		}
+		m.failed = append(m.failed, failedChunk{
+			workerID: msg.WorkerID,
+			chunk:    msg.Chunk,
+			err:      msg.Err.Error(),
+			retrying: msg.Retrying,
+			at:       time.Now(),
+		})
+		if len(m.failed) > 8 {
+			m.failed = m.failed[len(m.failed)-8:]
+		}
 
 	case engine.MsgJobDone:
 		m.done = true
@@ -220,6 +239,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.hookPhase = msg.Phase
 		m.hookCurrent = msg.Name
+		m.hookCurrentStart = time.Now()
 		m.hookTotal = msg.Total
 
 		switch msg.Phase {
@@ -307,10 +327,31 @@ func (m Model) View() string {
 
 	// ── Completed table (only in morph phase) ───────────────────────
 	if m.phase == phaseMorph && len(m.completed) > 0 {
+		// Determine how many entries fit in available terminal space.
+		maxEntries := 5
+		if m.termHeight > 0 {
+			usedLines := strings.Count(b.String(), "\n") + 1
+			// Reserve lines for divider(2) + completed header(3) + footer(2).
+			available := m.termHeight - usedLines - 7
+			if available > 0 {
+				maxEntries = available
+			}
+			if maxEntries > 8 {
+				maxEntries = 8
+			}
+		}
 		b.WriteString("\n")
 		b.WriteString(divider)
 		b.WriteString("\n")
-		b.WriteString(m.renderCompleted(width))
+		b.WriteString(m.renderCompleted(width, maxEntries))
+	}
+
+	// ── Errors table (only in morph phase) ──────────────────────────
+	if m.phase == phaseMorph && len(m.failed) > 0 {
+		b.WriteString("\n")
+		b.WriteString(divider)
+		b.WriteString("\n")
+		b.WriteString(m.renderErrors(width))
 	}
 
 	// ── Debug queries ───────────────────────────────────────────────
@@ -332,9 +373,15 @@ func (m Model) View() string {
 		if m.loadErr != nil {
 			b.WriteString(redStyle.Render(fmt.Sprintf("  ✗ Failed: %s", m.loadErr)))
 		} else {
-			b.WriteString(greenStyle.Render(fmt.Sprintf("  ✓ Done in %s — %s rows loaded",
+			var detail string
+			if m.totalLoaded > 0 {
+				detail = fmt.Sprintf("%s rows processed", engine.FormatRows(m.totalLoaded))
+			} else {
+				detail = fmt.Sprintf("%s chunks completed", engine.FormatRows(int64(m.chunksOK)))
+			}
+			b.WriteString(greenStyle.Render(fmt.Sprintf("  ✓ Done in %s — %s",
 				engine.FormatDuration(elapsed),
-				engine.FormatRows(m.totalLoaded))))
+				detail)))
 		}
 		b.WriteString("\n")
 	}
@@ -436,7 +483,12 @@ func (m Model) buildMorphTab() string {
 		label := fmt.Sprintf("■ morph %.1f%%", pct*100)
 		return activePill.Render(label)
 	case m.chunksOK > 0:
-		label := fmt.Sprintf("✓ morph %s rows", engine.FormatRows(m.totalLoaded))
+		var label string
+		if m.totalLoaded > 0 {
+			label = fmt.Sprintf("✓ morph %s rows", engine.FormatRows(m.totalLoaded))
+		} else {
+			label = fmt.Sprintf("✓ morph %s chunks", engine.FormatRows(int64(m.chunksOK)))
+		}
 		return completedPill.Render(label)
 	default:
 		return pendingPill.Render("○ morph")
@@ -510,14 +562,19 @@ func (m Model) renderMorphProgress(width int) string {
 	elapsed := time.Since(m.startTime)
 	pct := m.progressPercent()
 
-	// Row 1: "22.8%  5,548,397 rows loaded   throughput 17,050/s  eta 18m 19s  elapsed 5m 25s"
+	// Row 1: "22.8%  5,548,397 rows processed   throughput 17,050/s  eta 18m 19s  elapsed 5m 25s"
 	pctStr := cyanStyle.Bold(true).Render(fmt.Sprintf("  %.1f%%", pct*100))
-	rowsStr := bodyStyle.Render(fmt.Sprintf("  %s rows loaded", engine.FormatRows(m.totalLoaded)))
+	rowsStr := bodyStyle.Render(fmt.Sprintf("  %s rows processed", engine.FormatRows(m.totalLoaded)))
 
 	var stats []string
-	if elapsed.Seconds() > 1 && m.totalLoaded > 0 {
-		rate := float64(m.totalLoaded) / elapsed.Seconds()
-		stats = append(stats, dimStyle.Render("throughput ")+cyanStyle.Render(fmt.Sprintf("%s/s", engine.FormatRows(int64(rate)))))
+	if elapsed.Seconds() > 1 && m.chunksOK > 0 {
+		if m.totalLoaded > 0 {
+			rate := float64(m.totalLoaded) / elapsed.Seconds()
+			stats = append(stats, dimStyle.Render("throughput ")+cyanStyle.Render(fmt.Sprintf("%s/s", engine.FormatRows(int64(rate)))))
+		} else {
+			chunksRate := float64(m.chunksOK) / elapsed.Seconds()
+			stats = append(stats, dimStyle.Render("throughput ")+cyanStyle.Render(fmt.Sprintf("%.1f chunks/s", chunksRate)))
+		}
 		if m.estimatedChunks > m.chunksOK {
 			remaining := float64(m.estimatedChunks-m.chunksOK) / float64(m.chunksOK) * elapsed.Seconds()
 			stats = append(stats, dimStyle.Render("eta ")+bodyStyle.Render(engine.FormatDuration(time.Duration(remaining*float64(time.Second)))))
@@ -711,6 +768,9 @@ func (m Model) renderWorkerLine(w workerDisplay, width, windowWidth, colWidth, c
 	}
 
 	windowStyled := purpleStyle.Render(window)
+	if w.retrying {
+		windowStyled = amberStyle.Render(window + "  ⟳ retry")
+	}
 	wPad := windowWidth - lipgloss.Width(windowStyled)
 	if wPad < 0 {
 		wPad = 0
@@ -758,11 +818,10 @@ func (m Model) renderHooks(width int) string {
 	}
 
 	if m.hookCurrent != "" {
-		hookElapsed := time.Since(m.hookStarted)
+		hookElapsed := time.Since(m.hookCurrentStart)
 		b.WriteString(purpleStyle.Render("  ◆  "))
 		b.WriteString(bodyStyle.Render(m.hookCurrent))
-		b.WriteString("  " + dimStyle.Render("running…"))
-		_ = hookElapsed
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("running… %s", engine.FormatDuration(hookElapsed))))
 		b.WriteString("\n")
 	}
 
@@ -854,12 +913,11 @@ func signalStyle(l monitor.Level) lipgloss.Style {
 
 // ── Completed table ───────────────────────────────────────────────────────
 
-func (m Model) renderCompleted(width int) string {
+func (m Model) renderCompleted(width int, maxShow int) string {
 	var b strings.Builder
 
 	// Only show the most recent entries.
 	visible := m.completed
-	maxShow := 8
 	if len(visible) > maxShow {
 		visible = visible[len(visible)-maxShow:]
 	}
@@ -944,6 +1002,51 @@ func (m Model) renderCompleted(width int) string {
 		}
 		b.WriteString("  " + dimStyle.Render(id) + "  " + window + strings.Repeat(" ", wPad) +
 			padLeft(widthStr, colWidth) + padLeft(rows, colRows) + padLeft(dur, colDur) + padLeft(rpsStr, colRPS) + "\n")
+	}
+
+	return b.String()
+}
+
+// ── Errors table ──────────────────────────────────────────────────────────
+
+func (m Model) renderErrors(width int) string {
+	var b strings.Builder
+
+	visible := m.failed
+	if len(visible) > 5 {
+		visible = visible[len(visible)-5:]
+	}
+
+	title := redStyle.Bold(true).Render("ERRORS")
+	summary := dimStyle.Render(fmt.Sprintf("  %d total failures", m.chunksFailed))
+	b.WriteString(title + summary + "\n\n")
+
+	for i := len(visible) - 1; i >= 0; i-- {
+		f := visible[i]
+
+		window := fmt.Sprintf("%s → %s",
+			f.chunk.Start.Format("01-02 15:04"),
+			f.chunk.End.Format("15:04"))
+
+		status := redStyle.Render("✗ failed")
+		if f.retrying {
+			status = amberStyle.Render("⟳ retrying")
+		}
+
+		// Truncate error message to fit width.
+		maxErrLen := width - 6
+		if maxErrLen < 20 {
+			maxErrLen = 20
+		}
+		errMsg := f.err
+		if len(errMsg) > maxErrLen {
+			errMsg = errMsg[:maxErrLen-3] + "..."
+		}
+
+		b.WriteString("  " + dimStyle.Render(fmt.Sprintf("#%d", f.workerID)) + "  ")
+		b.WriteString(purpleStyle.Render(window) + "  ")
+		b.WriteString(status + "\n")
+		b.WriteString("      " + redStyle.Render(errMsg) + "\n")
 	}
 
 	return b.String()

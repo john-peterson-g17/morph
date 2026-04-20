@@ -207,6 +207,17 @@ func (s *Store) IsChunkComplete(c progress.ChunkRange) bool {
 	return s.data.Chunks[idx].Status == "complete"
 }
 
+func (s *Store) IsChunkFailed(c progress.ChunkRange) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx := s.findChunk(c)
+	if idx == -1 {
+		return false
+	}
+	return s.data.Chunks[idx].Status == "failed"
+}
+
 func (s *Store) GetResumePoint() (nextStart time.Time, lastWidth time.Duration, completedCount int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

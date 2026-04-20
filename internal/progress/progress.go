@@ -49,6 +49,7 @@ type Store interface {
 	MarkChunkComplete(c ChunkRange, chunkWidth time.Duration)
 	MarkChunkFailed(c ChunkRange, stepName string, err error)
 	IsChunkComplete(c ChunkRange) bool
+	IsChunkFailed(c ChunkRange) bool
 	GetResumePoint() (nextStart time.Time, lastWidth time.Duration, completedCount int)
 	TotalRows() int64
 	Summary() (completedChunks, failedChunks int, rowsByStep map[string]int64, avgRuntime time.Duration)

@@ -12,6 +12,13 @@ type RowEstimate struct {
 	Err      error
 }
 
+// ExplainResult holds the full EXPLAIN output for a single step.
+type ExplainResult struct {
+	StepName string
+	Lines    []string
+	Err      error
+}
+
 // StepQuery describes a step's query for estimation purposes.
 type StepQuery struct {
 	Name string
@@ -24,4 +31,7 @@ type Previewer interface {
 	// the given time window. Implementations should use lightweight methods
 	// (e.g. query planner estimates) rather than full table scans.
 	EstimateRows(ctx context.Context, steps []StepQuery, windowStart, windowEnd time.Time) []RowEstimate
+
+	// ExplainQuery returns the full EXPLAIN output for each step query.
+	ExplainQuery(ctx context.Context, steps []StepQuery, windowStart, windowEnd time.Time) []ExplainResult
 }

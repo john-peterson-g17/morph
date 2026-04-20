@@ -53,3 +53,29 @@ func (p *Postgres) EstimateRows(ctx context.Context, steps []previewer.StepQuery
 
 	return estimates
 }
+
+func (p *Postgres) ExplainQuery(ctx context.Context, steps []previewer.StepQuery, windowStart, windowEnd time.Time) []previewer.ExplainResult {
+	results := make([]previewer.ExplainResult, len(steps))
+
+	for i, step := range steps {
+		results[i].StepName = step.Name
+
+		explainSQL := "EXPLAIN (ANALYZE false, COSTS true, FORMAT TEXT) " + step.SQL
+		rows, err := p.db.QueryContext(ctx, explainSQL, windowStart, windowEnd)
+		if err != nil {
+			results[i].Err = err
+			continue
+		}
+
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				continue
+			}
+			results[i].Lines = append(results[i].Lines, line)
+		}
+		_ = rows.Close()
+	}
+
+	return results
+}

@@ -14,6 +14,7 @@ type workerDisplay struct {
 	liveRows int64
 	started  time.Time
 	idle     bool
+	retrying bool
 }
 
 // completedChunk holds data for a finished chunk row in the completed table.
@@ -22,6 +23,15 @@ type completedChunk struct {
 	chunk    progress.ChunkRange
 	rows     int64
 	duration time.Duration
+}
+
+// failedChunk holds data for a failed chunk row in the errors table.
+type failedChunk struct {
+	workerID int
+	chunk    progress.ChunkRange
+	err      string
+	retrying bool
+	at       time.Time
 }
 
 // logEntry represents one completed-chunk entry with optional debug queries.
