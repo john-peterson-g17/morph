@@ -85,6 +85,9 @@ type Model struct {
 	// Database health.
 	dbHealth *monitor.Health
 
+	// Adaptive target runtime for latency colouring.
+	targetRuntime time.Duration
+
 	// Terminal dimensions.
 	termWidth  int
 	termHeight int
@@ -94,34 +97,35 @@ type Model struct {
 	hookCurrent      string
 	hookCurrentStart time.Time
 	hookStarted      time.Time
-	hookLog       []hookEntry
-	hookTotal     int
-	hookDone      int
-	beforeHookLog []hookEntry
-	beforeElapsed time.Duration
-	afterHookLog  []hookEntry
-	afterElapsed  time.Duration
+	hookLog          []hookEntry
+	hookTotal        int
+	hookDone         int
+	beforeHookLog    []hookEntry
+	beforeElapsed    time.Duration
+	afterHookLog     []hookEntry
+	afterElapsed     time.Duration
 }
 
 // New creates a new TUI model for a morph job.
-func New(jobName, version string, concurrency int, widthLabel, stepName string, beforeTotal, afterTotal int, cancel context.CancelFunc, debug bool) Model {
+func New(jobName, version string, concurrency int, widthLabel, stepName string, beforeTotal, afterTotal int, targetRuntime time.Duration, cancel context.CancelFunc, debug bool) Model {
 	workers := make([]workerDisplay, concurrency)
 	for i := range workers {
 		workers[i] = workerDisplay{id: i + 1, idle: true}
 	}
 	return Model{
-		jobName:     jobName,
-		version:     version,
-		concurrency: concurrency,
-		widthLabel:  widthLabel,
-		stepName:    stepName,
-		beforeTotal: beforeTotal,
-		afterTotal:  afterTotal,
-		workers:     workers,
-		startTime:   time.Now(),
-		cancel:      cancel,
-		debug:       debug,
-		phase:       phaseBefore,
+		jobName:       jobName,
+		version:       version,
+		concurrency:   concurrency,
+		widthLabel:    widthLabel,
+		stepName:      stepName,
+		beforeTotal:   beforeTotal,
+		afterTotal:    afterTotal,
+		targetRuntime: targetRuntime,
+		workers:       workers,
+		startTime:     time.Now(),
+		cancel:        cancel,
+		debug:         debug,
+		phase:         phaseBefore,
 	}
 }
 
@@ -1065,12 +1069,17 @@ func (m Model) progressPercent() float64 {
 	return pct
 }
 
-// latencyStyle returns a color style based on duration thresholds.
+// latencyStyle returns a color style based on the adaptive target runtime.
+// At or below target: cyan, up to 2× target: amber, above 2× target: red.
 func (m Model) latencyStyle(d time.Duration) lipgloss.Style {
+	target := m.targetRuntime
+	if target == 0 {
+		target = 30 * time.Second
+	}
 	switch {
-	case d > 2*time.Second:
+	case d > 2*target:
 		return redStyle
-	case d > 1*time.Second:
+	case d > target:
 		return amberStyle
 	default:
 		return cyanStyle

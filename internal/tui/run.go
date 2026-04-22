@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,6 +19,7 @@ type RunOpts struct {
 	ResumedChunks   int
 	ResumedRows     int64
 	EstimatedChunks int
+	TargetRuntime   time.Duration
 	Cancel          context.CancelFunc
 	Debug           bool
 }
@@ -25,7 +27,7 @@ type RunOpts struct {
 // Run starts the TUI and returns a program handle for sending messages.
 // The TUI runs in a background goroutine.
 func Run(opts RunOpts) (*tea.Program, error) {
-	m := New(opts.JobName, opts.Version, opts.Concurrency, opts.WidthLabel, opts.StepName, opts.BeforeTotal, opts.AfterTotal, opts.Cancel, opts.Debug)
+	m := New(opts.JobName, opts.Version, opts.Concurrency, opts.WidthLabel, opts.StepName, opts.BeforeTotal, opts.AfterTotal, opts.TargetRuntime, opts.Cancel, opts.Debug)
 	m.chunksOK = opts.ResumedChunks
 	m.totalLoaded = opts.ResumedRows
 	if opts.EstimatedChunks > 0 {

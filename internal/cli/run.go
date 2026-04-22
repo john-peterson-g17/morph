@@ -313,6 +313,7 @@ func runBackfill(ctx context.Context, cmd *cli.Command) error {
 		ResumedChunks:   resumedChunks,
 		ResumedRows:     resumedRows,
 		EstimatedChunks: initialEstimate,
+		TargetRuntime:   targetRuntime,
 		Cancel:          cancel,
 		Debug:           debug,
 	})
